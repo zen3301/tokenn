@@ -37,7 +37,7 @@ codereview = "projects.codereview.main:cli"
 [tool.setuptools]
 
 [tool.setuptools.packages.find]
-where = [".."]
+where = ["../.."]
 include = ["projects.codereview", "projects.codereview.*"]
 
 [tool.setuptools.package-data]

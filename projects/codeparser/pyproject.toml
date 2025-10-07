@@ -30,7 +30,7 @@ Repository = "https://github.com/zen3301/tokenn.git"
 [tool.setuptools]
 
 [tool.setuptools.packages.find]
-where = [".."]
+where = ["../.."]
 include = ["projects.codeparser", "projects.codeparser.*"]
 
 [tool.setuptools.package-data]

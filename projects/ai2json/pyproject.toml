@@ -34,7 +34,7 @@ Repository = "https://github.com/zen3301/tokenn.git"
 
 [tool.setuptools.packages.find]
 # Search from repo root so that dotted package "projects.ai2json" is discoverable when building
-where = [".."]
+where = ["../.."]
 include = ["projects.ai2json", "projects.ai2json.*"]
 
 [tool.setuptools.package-data]
