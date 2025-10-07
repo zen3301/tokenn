@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codeparser"
+version = "0.1.0"
+description = "Multi-language code parsing and comment utilities using tree-sitter."
+readme = "README.md"
+authors = [{ name = "Dr. Zen" }]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+  "tree_sitter==0.21.0",
+  "tree_sitter_languages>=1.10.2",
+]
+keywords = ["parser", "tree-sitter", "code", "AST", "comments"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://tokenn.ai/codeparser"
+Repository = "https://github.com/zen3301/tokenn.git"
+
+[tool.setuptools]
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["projects.codeparser", "projects.codeparser.*"]
+
+[tool.setuptools.package-data]
+"projects.codeparser" = ["*.md"]
+"projects.codeparser.languages" = ["*.md"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_configs = true
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "UP", "N"]
+ignore = []

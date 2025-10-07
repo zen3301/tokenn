@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codereview"
+version = "0.1.0"
+description = "CLI code review tool using AI backends (Codex/Claude) with AST checks."
+readme = "README.md"
+authors = [{ name = "Dr. Zen" }]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+  "GitPython>=3.1.41",
+  "ai2json>=0.1.0",
+  "codeparser>=0.1.0",
+]
+keywords = ["code review", "AI", "AST", "CLI"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://tokenn.ai/codereview"
+Repository = "https://github.com/zen3301/tokenn.git"
+
+[project.scripts]
+# Console entry point
+codereview = "projects.codereview.main:cli"
+
+[tool.setuptools]
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["projects.codereview", "projects.codereview.*"]
+
+[tool.setuptools.package-data]
+"projects.codereview" = ["*.md"]
+"projects.codereview.prompts" = ["*.md"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_configs = true
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "UP", "N"]
+ignore = []

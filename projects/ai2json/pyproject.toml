@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai2json"
+version = "0.1.0"
+description = "Unified CLI adapters to run external AIs and extract JSON responses (Codex/Claude)."
+readme = "README.md"
+authors = [{ name = "Dr. Zen" }]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["AI", "CLI", "JSON", "adapter", "codex", "claude"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://tokenn.ai/ai2json"
+Repository = "https://github.com/zen3301/tokenn.git"
+
+[project.scripts]
+# Thin convenience wrappers to call adapters directly are optional. Here we expose a small shim
+# that could be extended later. For now, no direct console script is strictly required by code.
+
+[tool.setuptools]
+# We need to package module under top-level package name "projects.ai2json" as it exists in repo.
+# setuptools will include the exact package dotted path.
+
+[tool.setuptools.packages.find]
+# Search from repo root so that dotted package "projects.ai2json" is discoverable when building
+where = [".."]
+include = ["projects.ai2json", "projects.ai2json.*"]
+
+[tool.setuptools.package-data]
+# Include review docs if present alongside modules
+"projects.ai2json" = ["*.md"]
+"projects.ai2json.ai" = ["*.md"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_configs = true
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "UP", "N"]
+ignore = []
