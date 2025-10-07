@@ -19,7 +19,7 @@ from abc import abstractmethod
 from projects.ai2json.index import AI2JSON
 
 # 通过 CLI 调用的 AI 评审器，子类（如 Codex、Claude）位于 ./ai/
-class ThisAI2JSON(AI2JSON):
+class TheAI2JSON(AI2JSON):
     def init(self, system_prompt: str, user_prompt: str, timeout = 0) -> tuple[list[str], str | None, int]:
         # 返回 CLI 参数列表、标准输入提示以及最终超时时间
         # timeout=0: 按内容长度动态计算（每 KB 预算 + 基础开销）

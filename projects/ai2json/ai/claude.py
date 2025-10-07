@@ -1,7 +1,7 @@
 #%% ---------- Reviewed by: claude
 #%% $lang: 中文
 #%% ---------- [Overview]
-#%% 该模块实现 Claude CLI 集成适配器，继承 ThisAI2JSON 基类，负责定位 Claude 可执行入口（优先 node + cli.js，次选 claude 命令），根据运行环境（root/非 root）选择权限策略（acceptEdits 模式或跳过权限检查），构造带 JSON 输出格式的命令行参数，解析 stdout 中的 JSON 响应并严格校验 result 字段的存在性与非空性。
+#%% 该模块实现 Claude CLI 集成适配器，继承 TheAI2JSON 基类，负责定位 Claude 可执行入口（优先 node + cli.js，次选 claude 命令），根据运行环境（root/非 root）选择权限策略（acceptEdits 模式或跳过权限检查），构造带 JSON 输出格式的命令行参数，解析 stdout 中的 JSON 响应并严格校验 result 字段的存在性与非空性。
 #%% ---------- [Review]
 #%% 整体逻辑清晰且类型安全，入口定位回退机制健全，权限处理策略针对 root 环境做了专门优化（使用 acceptEdits 替代被禁止的 skip-permissions），JSON 解析与空值检查到位，错误信息明确可追溯；当前实现无明显缺陷，可直接用于生产环境。完成度约 100%，可测试性良好，建议测试覆盖 CLI 输出的各种形态（正常、空、格式错误）以及 root/非 root 两种权限模式。
 #%% ---------- [Notes]
@@ -19,10 +19,10 @@ import os
 import json
 import shutil
 from pathlib import Path
-from ..ai2json import ThisAI2JSON
+from ..ai2json import TheAI2JSON
 
 # Claude CLI 集成适配器
-class Claude2JSON(ThisAI2JSON):
+class Claude2JSON(TheAI2JSON):
     def ai(self) -> str:
         return "claude"
 

@@ -1,7 +1,7 @@
 #%% ---------- Reviewed by: claude
 #%% $lang: 中文
 #%% ---------- [Overview]
-#%% 该模块实现 GPT-5 Codex CLI 适配器，继承 ThisAI2JSON 基类，负责定位 codex 可执行入口（优先 node + codex.js，次选 codex 命令），构造跳过审批与 git 检查的 CLI 参数，从 stdout 逐行解析 JSON 事件流（支持新旧格式），提取 agent_message 中的文本内容，最后尝试直接解析 JSON 或回退至父类的围栏提取逻辑。
+#%% 该模块实现 GPT-5 Codex CLI 适配器，继承 TheAI2JSON 基类，负责定位 codex 可执行入口（优先 node + codex.js，次选 codex 命令），构造跳过审批与 git 检查的 CLI 参数，从 stdout 逐行解析 JSON 事件流（支持新旧格式），提取 agent_message 中的文本内容，最后尝试直接解析 JSON 或回退至父类的围栏提取逻辑。
 #%% ---------- [Review]
 #%% 整体实现遵循父类契约，类型安全且逻辑清晰；入口定位回退机制与 claude.py 保持一致，JSON 事件流解析兼容新旧两种格式，_extract_json 首次尝试直接解析后回退至父类围栏提取，设计合理且健壮；当前未发现阻塞性缺陷，可直接用于生产。完成度约 100%，可测试性良好。
 #%% ---------- [Notes]
@@ -18,10 +18,10 @@ import json
 import shutil
 from typing import Any
 from pathlib import Path
-from ..ai2json import ThisAI2JSON
+from ..ai2json import TheAI2JSON
 
 # GPT-5 Codex CLI 适配器
-class Codex2JSON(ThisAI2JSON):
+class Codex2JSON(TheAI2JSON):
     def ai(self) -> str:
         return "codex"
 
