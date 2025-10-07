@@ -60,5 +60,6 @@ def cli() -> None:
     _sys.exit(main(_sys.argv[1:]))
 
 
+# pip install git+https://github.com/zen3301/tokenn.git#subdirectory=projects/codereview
 if __name__ == "__main__":
     cli()
