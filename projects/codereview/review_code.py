@@ -54,7 +54,7 @@ def _comment_section(comment: str, title: str) -> str:
 
 def _update(ai: str, lang: str, parser: Parser, src_path: str, data: Any) -> str:
     # 将 AI 评审结果格式化为注释头部，插入源文件顶部并保存
-    txt = '---------- Reviewed by: ' + ai + '\n'
+    txt = f"---------- Reviewed by: {ai} @ {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
     txt += '$lang: ' + lang + '\n'
     if data['overview'] != '':
         txt += _comment_section(data['overview'], 'Overview')
