@@ -94,7 +94,7 @@ def _paths2relative(paths: list[str], prefix: str) -> list[str]:
 def _update(ai: str, request: Any, data: Any) -> str:
     # 根据评审结果更新.REVIEW.md文件，生成文件树和各评审章节
     md = f"$lang: {request['comment_language']}\n"
-    md += f"---------- Reviewed by: {ai}\n"
+    md += f"---------- Reviewed by: {ai} @ {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
 
     dir = request['path']
     path = Path(dir) / ".REVIEW.md"

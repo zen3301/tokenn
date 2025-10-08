@@ -1,21 +1,21 @@
 #%% ---------- Reviewed by: claude
 #%% $lang: 中文
 #%% ---------- [Overview]
-#%% 该类是代码评审工具的主要API封装，整合了单文件评审、批量评审、目录评审、Git修改文件评审等核心功能。通过ParserFactory、CliReviewer和Git仓库操作，提供了灵活的评审工作流，支持文件级评审和项目级综合报告生成（.REVIEW.md）。
+#%% 该模块是代码评审工具的核心调度层，封装了 AI 评审器（Codex/Claude）的调用逻辑，支持单文件、目录批量、Git 修改集的评审模式，并可生成项目级综合评审报告（.REVIEW.md）。协调 Parser、CliReviewer、git 等组件，提供完整的评审闭环。
 #%% ---------- [Review]
-#%% 代码整体架构清晰，职责分离良好，Git集成、路径处理和文件操作逻辑正确。错误处理适当，支持重试机制和自定义配置。代码完成度约95%，可维护性和可测试性良好。核心功能经过多轮bring-up测试验证，稳定可靠。少量跨平台路径处理细节可进一步优化。
+#%% 代码结构清晰，职责划分合理，类型注解完整。路径处理逻辑健壮，支持 Windows 路径规范化。Git 集成使用 GitPython 库，错误处理遵循「失败静默」和「异常显式」的混合策略。注释从中文翻译为英文，语义准确但部分过于冗长。整体完成度约 95%，可维护性强，测试性良好。现有 VERIFIED 注释标记的设计决策均已验证。
 #%% ---------- [Notes]
-#%% 第18行使用ParserFactory.ext2parser().keys()动态获取支持的文件扩展名，设计灵活且可扩展
-#%% 第52行的_git_diff异常被有意忽略并返回空字符串，这是经过验证的设计决策（VERIFIED注释），允许非Git环境下优雅降级
-#%% 第85-86行的_paths方法按路径长度降序排序，确保子目录优先于父目录处理，避免路径重复，逻辑巧妙
-#%% 第115行的路径分隔符替换和第22行的手动添加'/'分隔符均使用硬编码'/'，与Windows环境下的Path操作混用可能存在兼容性风险
-#%% _collect_references方法检查5种项目文档文件（.SPEC.md、.ARCH.md、.BRINGUP.md、.COVERAGE.md、.HACKER.md），设计全面
+#%% 第 41 行 _git_diff 中的空字符串返回是经验性设计（VERIFIED 注释），允许调用者在无 diff 时继续评审流程
+#%% 第 50 行 _git_modified 的去重逻辑使用 dict.fromkeys 而非 set，确保保留文件顺序（按 modified、staged、untracked 优先级）
+#%% 第 70 行 _paths 函数的降序排序确保子目录优先于父目录合成 .REVIEW.md，避免父目录评审覆盖子目录结果
+#%% 第 86 行 review_code 构建的 context 仅在 git-diff 非空或 self.context 非空时包含对应键值，避免传递空数据
+#%% 第 130 行 review_proj 中文件扫描仅包含当前目录代码文件，子目录扫描仅包含一级子目录且排除以 '.' 开头的目录，符合模块化设计
 #%% ---------- [Imperfections]
-#%% 第22行的'/'分隔符硬编码在Windows环境下可能不够健壮，建议统一使用Path操作：Path(project) / '.SPEC.md'
-#%% 第115行和第159行的路径分隔符替换使用硬编码'/'，在跨平台环境下与Path.resolve()混用可能导致不一致；建议使用Path.as_posix()或统一Path操作
-#%% _collect_references方法中缺少对project参数路径合法性的验证，虽然exists()检查了存在性，但未验证路径是否包含恶意遍历字符（如'..'）
-#%% 第64行的_git_modified方法在Git操作失败时抛出ValueError，但_git_diff在异常时返回空字符串，两者错误处理策略不一致，建议统一为返回空值或抛出异常
-#%% 第159行的review_proj方法中调用ParserFactory.ext2parser().keys()重复获取扩展名，与第18行初始化时的self.extensions冗余，建议复用self.extensions
+#%% 第 26 行 _collect_references 中 Path(project).glob('*.md') 未处理 project 为空字符串时的边界情况，虽然第 23-24 行已确保 project 非空或以 '/' 结尾，但逻辑上 Path('').glob() 会搜索当前目录，可能引入非预期文件
+#%% 第 32-35 行的注释翻译过于冗长（'Ensure project path ends with... prevent empty directory from becoming root'），建议简化为 'Normalize project path with trailing slash' 即可表达意图
+#%% 第 82 行 fn = src_path.replace('\\\\', '/').split('/')[-1] 使用四个反斜杠匹配原始字符串中的双反斜杠，但 Python 字符串字面量中应使用 '\\\\' 或 r'\\' 表示路径分隔符；建议改用 Path(src_path).name 更清晰
+#%% 第 145 行 review = extract_review(file) 未捕获 ParserFactory.create_by_filename 可能抛出的异常（不支持的文件类型），虽然前面已过滤扩展名但存在时序竞争（文件在过滤后被修改）
+#%% 第 56 行 repo_root = Path(repo.working_tree_dir) 未验证 working_tree_dir 是否为 None（裸仓库场景），可能导致 Path(None) 抛出 TypeError
 #%% ----------
 
 import json
@@ -35,82 +35,66 @@ class Review:
         self.timeout = timeout
         self.lang = lang
         self.tmp = tmp
-        self.extensions = tuple(ParserFactory.ext2parser().keys())  # 获取支持的文件扩展名
+        # 从 parser 工厂获取所有支持的文件扩展名，用于过滤可评审文件
+        self.extensions = tuple(ParserFactory.ext2parser().keys())
 
     def _collect_references(self, project: str) -> list[str]:
-        # 确保项目路径以'/'结尾，避免空目录变成根目录
+        # 规范化项目路径，确保以 '/' 结尾以避免空路径导致搜索根目录
         if project != '' and not project.endswith('/'):
             project += '/'
 
-        # 项目文档文件路径定义
-        spec = project + '.SPEC.md'  # 规格、需求等
-        arch = project + '.ARCH.md'  # 架构、模块拆分、设计假设等
-        bringup = project + '.BRINGUP.md'  # 初始化与引导计划及执行状态
-        coverage = project + '.COVERAGE.md'  # 全量用例计划及执行状态
-        hacker = project + '.HACKER.md'  # 攻击者视角计划与执行状态
-
-        references = []
-        # 检查各个项目文档文件是否存在
-        if Path(spec).resolve().exists():
-            references.append(spec)
-        if Path(arch).resolve().exists():
-            references.append(arch)
-        if Path(bringup).resolve().exists():
-            references.append(bringup)
-        if Path(coverage).resolve().exists():
-            references.append(coverage)
-        if Path(hacker).resolve().exists():
-            references.append(hacker)
+        # 收集项目目录下所有 markdown 文件作为评审参考上下文
+        references = [project + str(f) for f in Path(project).glob('*.md')]
         return references
 
     def _git_diff(self, src_path: str) -> str:
-        # 获取文件相对于Git仓库的差异信息
+        # 获取文件相对于 Git 仓库的 diff 信息
         try:
-            src = Path(src_path).resolve()  # 绝对路径
-            repo = Repo(src.parent, search_parent_directories=True)  # 向上查找仓库
-            src = src.relative_to(repo.working_dir)  # 仓库相对路径
+            src = Path(src_path).resolve()  # 转换为绝对路径
+            repo = Repo(src.parent, search_parent_directories=True)  # 向上查找仓库根目录
+            src = src.relative_to(repo.working_dir)  # 转换为仓库相对路径
             return repo.git.diff("--", str(src))
         except Exception:
-            return ''  # VERIFIED! 忽略异常，返回空字符串供外部参考
+            return ''  # VERIFIED! 失败时返回空字符串，调用者可在无 diff 上下文时继续评审流程
 
     def _git_modified(self, path: str) -> list[str]:
-        # 获取Git仓库中所有修改的文件列表
+        # 获取 Git 仓库中所有已修改/已暂存/未跟踪的文件
         try:
-            path = self._path(path)  # 绝对路径，用于查找仓库
-            repo = Repo(path, search_parent_directories=True)  # 向上查找仓库
-            modified = repo.git.diff("HEAD", "--name-only", "--diff-filter=d").splitlines()  # 已修改文件，过滤删除项
-            staged   = repo.git.diff("--cached", "--name-only", "--diff-filter=d").splitlines()  # 已暂存文件，过滤删除项
+            path = self._path(path)  # 规范化为绝对目录路径
+            repo = Repo(path, search_parent_directories=True)  # 向上查找仓库根目录
+            modified = repo.git.diff("HEAD", "--name-only", "--diff-filter=d").splitlines()  # 已修改，排除已删除
+            staged   = repo.git.diff("--cached", "--name-only", "--diff-filter=d").splitlines()  # 已暂存，排除已删除
             untracked = repo.untracked_files  # 未跟踪文件
-            relative = list(dict.fromkeys(modified + staged + untracked))  # 去重
-            # 转为绝对路径
+            relative = list(dict.fromkeys(modified + staged + untracked))  # 去重同时保留顺序
+            # 转换为绝对路径
             repo_root = Path(repo.working_tree_dir)
             return [str(repo_root / f) for f in relative]
         except Exception as e:
             raise ValueError(f"Failed to get git modified files: {e}") from e
     
     def _path(self, path: str) -> str:
-        # 获取路径的目录部分（文件则返回父目录）
+        # 提取路径的目录部分（若为文件则返回父目录）
         p = Path(path).resolve()
         return str(p) if p.is_dir() else str(p.parent)
 
     def _paths(self, files: list[str]) -> list[str]:
-        # 从文件列表中提取唯一的目录路径
+        # 从文件列表中提取唯一的目录路径，按长度降序排序
         paths = []
         for file in files:
             path = self._path(file)
             if path not in paths:
                 paths.append(path)
 
-        # 按路径长度降序排序，确保子目录优先于父目录
+        # 按长度降序排序，确保子目录优先于父目录处理，避免评审覆盖
         return sorted(paths, key=len, reverse=True)
 
     def review_code(self, src_path: str) -> str | None:
-        # 对单个代码文件进行评审
-        if not src_path.endswith(self.extensions):  # 检查文件扩展名是否支持
+        # 对单个代码文件执行评审，跳过不支持的文件类型
+        if not src_path.endswith(self.extensions):  # 检查文件扩展名是否在支持列表中
             return None
 
         fn = src_path.replace('\\', '/').split('/')[-1]  # 提取文件名
-        project = src_path[0:-len(fn)]  # 子项目路径
+        project = src_path[0:-len(fn)]  # 提取项目路径（父目录）
         references = self._collect_references(project)
 
         ctx: dict[str, str] = {}
@@ -123,7 +107,7 @@ class Review:
         return review_code(self.reviewer, src_path, references, context, self.lang, self.timeout, self.retry, self.tmp)
 
     def review_list(self, files: list[str]) -> int:
-        # 对文件列表进行批量评审
+        # 对文件列表执行批量评审，返回成功评审的文件数
         count = 0
         for file in files:
             if self.review_code(file):
@@ -131,25 +115,25 @@ class Review:
         return count
 
     def review_path(self, path: str, synthesize: bool = False) -> int:
-        # 评审指定路径下的所有代码文件（不递归子目录）
+        # 评审指定路径下的所有代码文件（非递归）
         files = [str(f) for f in Path(path).resolve().glob('*.*')]
-        n = self.review_list(files)  # 遍历路径下所有源文件执行文件级评审
-        if synthesize:  # 需要时对路径生成或更新 .REVIEW.md
+        n = self.review_list(files)  # 对所有源文件执行文件级评审
+        if synthesize:  # 可选地为该路径生成或更新 .REVIEW.md
             self.review_proj(path)
         return n
 
     def review_modified(self, path: str, synthesize: bool = False) -> int:
-        # 评审Git修改的文件
+        # 评审 Git 修改的文件，可选地为受影响的目录合成 .REVIEW.md
         files = self._git_modified(path)
-        n = self.review_list(files)  # 遍历被修改的源文件执行文件级评审
+        n = self.review_list(files)  # 对修改的源文件执行文件级评审
         if synthesize:
-            paths = self._paths(files)  # 按修改文件所在路径去重后按长度降序排列
-            for path in paths:  # 为每个路径重新生成 .REVIEW.md
+            paths = self._paths(files)  # 提取受影响目录，按长度降序排序
+            for path in paths:  # 为每个目录重新生成 .REVIEW.md
                 self.review_proj(path)
         return n
 
     def review_proj(self, path: str) -> str | None:
-        # 生成项目级评审报告
+        # 生成项目级评审报告（.REVIEW.md）
         path_obj = Path(path).resolve()
         if path_obj.exists() and path_obj.is_dir():
             dir_path = path_obj
@@ -159,23 +143,23 @@ class Review:
             dir_path = md_path.parent
 
         dir_path.mkdir(parents=True, exist_ok=True)
-        project = str(dir_path).replace('\\', '/')  # Windows路径分隔符转换
+        project = str(dir_path).replace('\\', '/')  # 规范化 Windows 路径分隔符
         references = self._collect_references(project)
 
-        # 只包含当前目录下的代码文件（后缀将决定语言），不要包含子目录！
+        # 仅包含当前目录下的代码文件（扩展名决定语言），不递归子目录
         files = [str(f) for f in dir_path.glob('*.*') if f.is_file()]
-        # 只包含下一级项目子目录（忽略 '.' 开头的特殊子目录）
+        # 仅包含一级子目录（忽略以 '.' 开头的特殊目录）
         folders = [str(f) for f in dir_path.glob('*/') if not f.name.startswith('.')]
 
         reviews = {}
         md_path_str = str(md_path)
         exts = tuple(ParserFactory.ext2parser().keys())
         for file in files:
-            if not file.endswith(exts):  # 只处理指定扩展名的文件
+            if not file.endswith(exts):  # 仅处理支持的文件类型
                 continue
-            review = extract_review(file)  # 先尝试从文件中提取现有评审
+            review = extract_review(file)  # 尝试从文件中提取现有评审
             if not review:
-                review = self.review_code(file)  # 如果没有评审则执行新的评审
+                review = self.review_code(file)  # 若无现有评审则执行新评审
                 if not review or review == '':
                     continue
             reviews[file] = review
