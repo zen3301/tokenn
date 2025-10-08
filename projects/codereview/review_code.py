@@ -133,8 +133,12 @@ def review_code(reviewer: CliReviewer, src_path: str, references: list[str], con
         else:
             # 记录错误并继续重试
             _error(i+1, src_path, data, err, log)
+            if i < retry - 1:
+                print(f"Retrying...")
+                continue
             if i == retry - 1 and data:
                 # 最后一次重试时若 AST 不匹配：放弃 AI 修改的代码，保留评审元数据
+                print(f"Let's ignore the modified inline comments, just update the review metadata.")
                 data['output'] = source
                 return _update(ai, lang, parser, src_path, data)
 
