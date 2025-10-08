@@ -166,4 +166,8 @@ def extract_review(src_path: str) -> str:
 
     if not reviews or len(reviews) == 0:
         return None
-    return '\n'.join(reviews)
+
+    for review in reviews:
+        if review.startswith('---------- [Review]'): # 如无 [Review] 段落，视之为无评审
+            return '\n'.join(reviews)
+    return None
