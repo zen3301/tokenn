@@ -1,41 +1,48 @@
-#%% ---------- Reviewed by: codex
-#%% $lang: 中文
-#%% ---------- [Overview]
-#%% 该抽象类通过 CLI 调用外部 AI 进程，结合提示规模动态计算超时时间，并从围栏包裹的输出中提取 JSON，服务于 Codex/Claude 等子类的通用执行骨架。
-#%% ---------- [Review]
-#%% 代码组织清晰，接口职责划分合理，异常路径均统一包装返回，整体完成度高且易于扩展；仅需关注部分实现对运行环境编码与字符集的隐含假设。
-#%% ---------- [Notes]
-#%% 超时计算依赖字符长度估算提示规模，默认假设提示多为 ASCII。
-#%% JSON 提取逻辑剥离围栏后只保留首尾花括号，适合 Markdown 包裹输出但对多余片段会截断。
-#%% ---------- [Imperfections]
-#%% subprocess.run 依赖 text=True 默认编码，在非 UTF-8 环境可能解码失败，建议显式指定 encoding。
-#%% 超时预算按字符数右移估算 KB，对多字节字符的提示会低估时间预算，有潜在超时风险。
-#%% ----------
+#\/ ---------- Reviewed by: codex @ 2025-10-09 21:16:22
+#\/ $lang: English
+#\/ ---------- [Overview]
+#\/ Shared AI2JSON runner calculates prompt-sensitive timeouts, executes an AI CLI subprocess, and extracts fenced JSON payloads, with adapters providing CLI-specific argument and stdout parsing helpers.
+#\/ ---------- [Review]
+#\/ Latest change corrects the fallback flow by ensuring recovered fenced payloads are parsed instead of being discarded; overall the module remains small, cohesive, and sufficiently defensive for production use.
+#\/ ---------- [Notes]
+#\/ Fallback path now properly parses fenced stdout instead of short-circuiting, protecting adapters from structured stream regressions.
+#\/ ----------
 
 import json
 import subprocess
 from typing import Any
+from pathlib import Path
 from abc import abstractmethod
 from projects.ai2json.index import AI2JSON
 
-# 通过 CLI 调用的 AI 评审器，子类（如 Codex、Claude）位于 ./ai/
+# Base class for CLI-invoked AI reviewers; concrete implementations (Codex, Claude) are in ./ai/
 class TheAI2JSON(AI2JSON):
-    def init(self, system_prompt: str, user_prompt: str, timeout = 0) -> tuple[list[str], str | None, int]:
-        # 返回 CLI 参数列表、标准输入提示以及最终超时时间
-        # timeout=0: 按内容长度动态计算（每 KB 预算 + 基础开销）
-        # timeout<0: 其绝对值作为每 KB 预算（秒），再加基础开销
-        # timeout>0: 直接使用该值作为最终超时
+    def __init__(self, tmp: str | None = None):
+        if tmp is None:
+            self.tmp = None
+        else:
+            self.tmp = Path(tmp)
+            print(f"TheAI2JSON: tmp = {self.tmp}")
+
+    def init(self, system_prompt: str, user_prompt: str, timeout: int = 0) -> tuple[list[str], str | None, int]:
+        # Returns CLI argument list, stdin prompt content, and final timeout value
+        # timeout=0: dynamically calculate based on content length (default per-KB budget + default base overhead)
+        # timeout<0: use absolute value as per-KB budget (seconds), add default base overhead
+        # timeout>0: use this value directly as final timeout
         if timeout <= 0:
             timeout = self._perKB() if timeout == 0 else - timeout
-            timeout *= len(system_prompt + user_prompt) >> 10  # 位移 10 位相当于除以 1024，近似按字符数折算为 KB
-            timeout += self._timeout()  # 加上基础启动与清理开销
+            # Bit shift by 10 approximates division by 1024 for KB calculation (~2.4% error vs /1000)
+            timeout *= len(system_prompt + user_prompt) >> 10
+            timeout += self._timeout()  # Add base startup and cleanup overhead
 
         args, stdin_prompt = self._get_args(system_prompt, user_prompt)
         return args, stdin_prompt, timeout
 
     def exec(self, args: list[str], timeout: int, stdin_prompt: str | None = None) -> tuple[Any, str | None]:
-        # 执行子进程，返回解析后的 JSON 对象及错误信息（若失败）
+        # Execute subprocess, return parsed JSON object and error message (if failed)
         try:
+            import sys
+            # VERIFIED! This works on Windows
             completed = subprocess.run(
                 args,
                 capture_output=True,
@@ -44,11 +51,17 @@ class TheAI2JSON(AI2JSON):
                 input=stdin_prompt,
             )
             if completed.returncode != 0:
-                return None, f"[ERR] subprocess.run: returncode={completed.returncode}"
+                stderr_msg = completed.stderr[:500] if completed.stderr else "no stderr"
+                return None, f"[ERR] subprocess.run: returncode={completed.returncode}, stderr: {stderr_msg}"
+
+            self._dump('stdout.txt', completed.stdout)
 
             payload, err = self._parse_stdout(completed.stdout)
-            if payload is None:
-                return None, err
+            if payload is None: # Fallback to find fenced payload in stdout
+                print("[WARNING] exec: Fallback to find fenced payload")
+                payload = self._strip_fence(completed.stdout)
+                if payload is None:
+                    return None, err
 
             data, err = self._extract_json(payload)
             if data is None:
@@ -60,45 +73,65 @@ class TheAI2JSON(AI2JSON):
         except Exception as e:
             return None, f"[ERR] subprocess.Exception: {e}"
 
+    def _dump(self, fn: str, text: str) -> bool:
+        if not self.tmp:
+            return False
+        fn = f"{self.ai()}.{fn}"
+        with open(self.tmp / fn, 'w', encoding='utf-8') as f:
+            f.write(text)
+        return True
+
     @abstractmethod
     def _get_args(self, system_prompt: str, user_prompt: str) -> tuple[list[str], str | None]:
-        # 子类实现：返回 CLI 参数列表，用户提示通过标准输入传入以避免命令行字符限制
+        # Subclass implementation: return CLI argument list with user prompt passed via stdin to avoid command-line length limits
         pass
 
     @abstractmethod
     def _parse_stdout(self, stdout: str) -> tuple[str | None, str | None]:
-        # 子类实现：从 CLI 输出中提取 AI 响应字符串及错误信息（如有）
+        # Subclass implementation: extract AI response string and error message (if any) from CLI output
         pass
 
-    def _fence(self) -> str:
-        # 围栏语法标记，默认 Markdown 三反引号，子类可覆盖
+    def _fence_prefix(self) -> str:
+        return '```json'
+
+    def _fence_suffix(self) -> str:
         return '```'
 
+    def _strip_fence(self, payload: str) -> str | None:
+        # Do not parse json here, leave it to _extract_json()
+        if not payload:
+            return None
+
+        # Strip fence prefix/suffix (e.g. ```json ... ```)
+        prefix = self._fence_prefix()
+        suffix = self._fence_suffix()
+        i = payload.find(prefix)
+        if i < 0:
+            return None
+        payload = payload[i + len(prefix):]
+        i = payload.rfind(suffix)
+        if i < 0:
+            return None
+        return payload[:i]
+
     def _extract_json(self, payload: str) -> tuple[Any, str | None]:
-        # 从可能带围栏的文本中提取单一 JSON 对象字典
+        # Extract single JSON object dictionary from potentially fenced text
         if not payload:
             return None, "[ERR] _extract_json: payload is empty"
 
-        # 去掉围栏前后缀（如 ```json ... ```）
-        fence = self._fence()
-        i = payload.find(fence)
-        if i >= 0:
-            payload = payload[i + len(fence):]
-            i = payload.rfind(fence)
-            if i >= 0:
-                payload = payload[:i]
-
-        # 定位首个 { 与最后一个 } 提取 JSON 字符串
+        # Locate first { and last } to extract JSON string
         i = payload.find("{")
         if i < 0:
+            self._dump('payload.txt', payload)
             return None, "[ERR] _extract_json: can't find { in payload"
         payload = payload[i:]
         i = payload.rfind("}")
         if i < 0:
+            self._dump('payload.txt', payload)
             return None, "[ERR] _extract_json: can't find } in payload"
         payload = payload[:i+1]
 
-        # 解析并校验为字典类型
+        # Parse and validate as dictionary type
         try:
             data = json.loads(payload)
             if not isinstance(data, dict):
@@ -108,9 +141,22 @@ class TheAI2JSON(AI2JSON):
             return None, "[ERR] _extract_json: can't parse JSON"
 
     def _timeout(self) -> int:
-        # 基础准备时间预算，默认 5 分钟（启动 CLI、网络延迟、清理）
+        # Base preparation time budget, default 5 minutes (CLI startup, network latency, cleanup)
         return 300
 
     def _perKB(self) -> int:
-        # 每 KB 提示内容的处理时间预算，默认 60 秒
+        # Processing time budget per KB of prompt content, default 60 seconds
         return 60
+
+    @staticmethod
+    def create(ai: str, tmp: str | None = None) -> AI2JSON:
+        # Factory method: create concrete AI implementation via delayed imports to avoid circular dependencies
+        # Supported AI: 'codex' or 'claude'
+        if ai == 'codex':
+            from ._ai2json.codex import Codex2JSON
+            return Codex2JSON(tmp)
+        elif ai == 'claude':
+            from ._ai2json.claude import Claude2JSON
+            return Claude2JSON(tmp)
+        else:
+            raise ValueError(f"Unsupported AI [codex, claude]: {ai}")

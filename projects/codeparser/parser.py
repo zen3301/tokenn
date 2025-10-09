@@ -1,59 +1,60 @@
-#%% ---------- Reviewed by: claude
-#%% $lang: 中文
-#%% ---------- [Overview]
-#%% 该文件实现了基于 tree-sitter 的通用代码解析器基类 TheParser，提供语言无关的语法树序列化（转为哈希化 JSON）、注释插入/提取操作，为各语言子类复用核心解析逻辑和注释处理接口。
-#%% ---------- [Review]
-#%% 代码逻辑严谨，语义与注释隔离策略清晰，接口设计完备覆盖解析与注释操作的核心路径。递归解析策略恰当，隐私保护（SHA256 哈希）和语义区分度（token 指纹+位置）兼顾。整体结构稳定，完成度高，可测试性良好，无阻塞性缺陷。注释管理对换行符的统一处理（转为 '\n' 并移除末尾换行）已在多处明确声明，调用方责任边界清晰。
-#%% ---------- [Notes]
-#%% parse() 通过 SHA256 哈希叶节点和捕获非命名 token 指纹+位置，确保语义区分度同时保护隐私；注释节点在递归时已跳过，满足「仅改注释时输出不变」的要求
-#%% comment()/insert_comment()/extract_comments() 统一将换行符改为 '\n' 并移除末尾换行，调用方需自行恢复原格式；已在多处注释中明确说明
-#%% block_comment()/line_comment() 在不支持对应注释类型时会回退到另一种类型（通过 force 参数控制），为跨语言兼容性提供灵活性
-#%% extract_comments() 仅提取整行注释且带指定标签，刻意跳过行末内联注释和块注释，与 comment() 生成的内联注释形成正交设计
-#%% _parse() 中的 node_to_dict() 递归深度受 Python 默认栈限制（约 1000 层），注释已明确说明不考虑极端嵌套输入
-#%% ---------- [Imperfections]
-#%% comment() 中 line < 0 或 line >= n 时抛出 ValueError，但 insert_comment() 中 line 超出范围时会被 clamp 到 [0, n]，两者边界处理不一致可能导致调用方混淆
-#%% block_comment() 中当 suffix 出现在 comment 内容中时抛出异常，但提示「用户可用例如 '* /' 避开」，这要求调用方自行处理转义，缺乏内建转义逻辑可能在批量处理时引入脆弱性
-#%% _extract_line_comment() 假定带标签注释从第 0 列开始以跳过内联注释,但未显式校验前导空格,如果源码缩进不规范(例如行首有空格但仍为整行注释)可能误判
-#%% ----------
+#\/ ---------- Reviewed by: claude @ 2025-10-09 21:34:49
+#\/ $lang: English
+#\/ ---------- [Overview]
+#\/ TheParser is a tree-sitter-based abstract syntax tree parser implementing the Parser interface. It provides language-agnostic parsing with comment-aware transformations, privacy-preserving hashing of identifiers, and multi-language factory methods. The recent change fixes extract_comments() to reject negative first indices, addressing a previously documented contract violation.
+#\/ ---------- [Review]
+#\/ The implementation is solid, well-commented, and thoughtfully designed with privacy concerns (hashing leaf values) and performance trade-offs explicitly documented. The recent fix properly addresses the negative index bug by adding an assertion at line 136. Code is ~95% complete with good testability through clean separation of concerns. Minor imperfections exist around edge case handling and performance in factory methods.
+#\/ ---------- [Notes]
+#\/ Privacy-first design hashes identifiers/literals to enable structural comparison without exposing sensitive data.
+#\/ Deliberately skips recursion depth protection, accepting RecursionError as acceptable failure mode for extreme cases.
+#\/ Intentional design: extract_comments() only handles full-line comments, ignoring inline end-of-line and block comments per documented contract.
+#\/ Factory methods parsers()/ext2parser() rebuild instances on every call for code simplicity despite minor overhead.
+#\/ ---------- [Imperfections]
+#\/ line_comment() at line 130: When tag is non-empty and line is empty, produces malformed output like '// TAG' with no space before TAG (missing space insertion logic for empty lines).
+#\/ extract_comments() at line 140-145: After normalizing negative last, the function allows last < first to return empty results rather than raising an error, which may silently hide caller bugs where invalid ranges are passed.
+#\/ parsers()/ext2parser() at lines 195-246: Rebuild entire parser factory on every call. For read-heavy workloads, consider module-level caching with @lru_cache or lazy singleton pattern.
+#\/ parse() at line 24: JSON output uses ensure_ascii=False which may cause issues if consumers expect ASCII-only output or have encoding compatibility concerns with non-English identifiers.
+#\/ ----------
 
+import os
 import json
 import hashlib
 from typing import Any
 from tree_sitter import Parser as TSParser  # type: ignore
 from tree_sitter_languages import get_language  # type: ignore
-from .index import Parser # ParserFactory 在函数内部执行此导入以避免循环依赖
+from .index import Parser
 
-# 仅供语言特定子类内部使用，不属于公开 API
-# 不要过度设计！例如极端的语法树深度，不必保留 Windows 的换行格式，可统一重组为 '\n'
-# 需要 Python 3.10+
+# Internal use only for language-specific subclasses, not part of public API
+# Don't over-engineer! For example: extreme syntax tree depth is acceptable, no need to preserve Windows line endings, can uniformly reorganize as '\n'
+# Requires Python 3.10+
 class TheParser(Parser):
     def __init__(self):
-        # 使用 tree-sitter 初始化解析器
-        # 子类必须让 language() 返回 tree_sitter_languages 的键，例如 'typescript'
+        # Initialize parser using tree-sitter
+        # Subclasses must have language() return the tree_sitter_parser key, e.g., 'typescript'
         self._parser = TSParser()
         self._parser.set_language(get_language(self.language()))
 
     def parse(self, source: str) -> str:
-        # 关键要求：
-        # - 不同的源码语义必须产生不同的输出字符串
-        # - 仅改动注释时应生成完全相同的输出字符串
+        # Key requirements:
+        # - Different source semantics must produce different output strings
+        # - Comment-only changes should generate identical output strings
         tree = self._parse(source)
         return json.dumps(tree, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
 
     def _parse(self, source: str) -> Any:
-        # 如有需要可由具体语言覆盖
+        # Can be overridden by specific language implementations if needed
         source_bytes = source.encode('utf-8')
         tree = self._parser.parse(source_bytes)
         root = tree.root_node
 
         def node_to_dict(node) -> dict[str, Any]:
-            # 注意：此处不需考虑极端嵌套输入（递归深度超过 Python 递归上限约 1000 层）
+            # Recursion depth limited by Python stack (~1000 levels), extreme nesting will trigger RecursionError
             result: dict[str, Any] = {
                 'type': node.type,
                 'named': bool(node.is_named),
             }
 
-            # 为命名叶子节点（标识符、数值、字符串等）提供隐私友好的哈希指纹
+            # Provide privacy-friendly hash fingerprint for named leaf nodes (identifiers, numbers, strings, etc.)
             has_named_child = any(c.is_named for c in node.children)
             if node.is_named and not has_named_child:
                 start, end = node.start_byte, node.end_byte
@@ -61,7 +62,7 @@ class TheParser(Parser):
                     s = source_bytes[start:end]
                     result['value_meta'] = {
                         'length': end - start,
-                        'value_hash': hashlib.sha256(s).hexdigest()[:32], # 128位哈希已足够可靠
+                        'value_hash': hashlib.sha256(s).hexdigest()[:32], # 128-bit hash, collision probability ~2^-128
                     }
 
             if node.child_count:
@@ -71,15 +72,16 @@ class TheParser(Parser):
                 named_index = 0
                 for child in node.children:
                     if child.is_named:
+                        # Skip comment nodes to ensure comment changes don't affect parse() output
                         if 'comment' in child.type.lower():
                             continue
                         children.append(node_to_dict(child))
                         named_index += 1
                     else:
-                        # 跳过未命名的注释 token，确保注释改动不影响输出
+                        # Skip unnamed comment tokens
                         if 'comment' in child.type.lower():
                             continue
-                        # 捕获运算符/标点等非命名 token 的指纹，并记录其相对位置（位于第几个命名子节点之前）
+                        # Capture fingerprint of non-named tokens like operators/punctuation, and record their relative position (before which named child)
                         start, end = child.start_byte, child.end_byte
                         if end > start:
                             token_hashes.append(hashlib.sha256(source_bytes[start:end]).hexdigest()[:32])
@@ -91,7 +93,6 @@ class TheParser(Parser):
                     result['token_positions'] = token_positions
             return result
 
-        # 注意：不得直接嵌入源码文本
         return {
             'language': self.language(),
             'version': 1,
@@ -99,7 +100,7 @@ class TheParser(Parser):
         }
 
     def comment(self, source: str, line: int, comment: str, tag = '') -> str:
-        # 将注释追加到指定行末尾；line < 0 表示自末尾反向计数
+        # Append comment to end of specified line; line < 0 counts backward from end
         lines = source.splitlines()
         n = len(lines)
         if line < 0:
@@ -110,10 +111,10 @@ class TheParser(Parser):
         if comment is None:
             raise ValueError("Line comment is not supported")
         lines[line] += ' ' + comment
-        return '\n'.join(lines) # 注意：统一改用 '\n' 并移除末尾换行，调用方需自行处理
+        return '\n'.join(lines) # Uniformly use '\n' and remove trailing newline, caller must handle their own needs
 
     def insert_comment(self, source: str, line: int, comment: str, tag = '', block = False) -> str:
-        # 在给定行插入注释；line < 0 自末尾反向计数
+        # Insert comment at given line; line < 0 counts backward from end
         comment = self.block_comment(comment, tag) if block else self.line_comment(comment, tag)
         if comment is None:
             raise ValueError("Comment is not supported")
@@ -121,23 +122,23 @@ class TheParser(Parser):
         n = len(lines)
         if line < 0:
             line += n
-        line = max(0, min(line, n))  # 允许在末尾插入
+        line = max(0, min(line, n))  # Allow insertion at end
         lines.insert(line, comment)
-        return '\n'.join(lines) # 注意：统一改用 '\n' 并移除末尾换行，调用方需自行处理
+        return '\n'.join(lines) # Uniformly use '\n' and remove trailing newline, caller must handle their own needs
 
     def block_comment(self, comment: str, tag = '', force = False) -> str | None:
-        # 如有需要可由具体语言覆盖
+        # Can be overridden by specific language implementations if needed
         prefix = self._block_comment_prefix()
         if prefix == '':
             return None if force else self.line_comment(comment, tag, True)
         suffix = self._block_comment_suffix()
-        if suffix in comment: # 不要在此处转义，用户可用例如 '* /' 避开
+        if suffix in comment: # Don't escape here, user can avoid with e.g., '* /'
             raise ValueError(f"Block comment suffix '{suffix}' found in comment")
         space = '\n' if '\n' in comment else ' '
         return prefix + tag + space + comment + space + suffix
 
     def line_comment(self, comment: str, tag = '', force = False) -> str | None:
-        # 如有需要可由具体语言覆盖
+        # Can be overridden by specific language implementations if needed
         prefix = self._line_comment_prefix()
         if prefix == '':
             return None if force else self.block_comment(comment, tag, True)
@@ -149,7 +150,9 @@ class TheParser(Parser):
         return '\n'.join(lines)
 
     def extract_comments(self, source: str, tag: str, first = 0, last = -1) -> tuple[list[str], str]:
-        # 提取源码中带标签的注释；仅支持整行行注释，忽略块注释。此方法独立于此前的注释插入，不保证 round-trip
+        # Extract tagged comments from source (line range [first, last]); only supports full-line line comments, ignores block comments and inline end-of-line comments
+        assert first >= 0, "Negative `first` indexes are not supported"
+
         lines = source.splitlines()
         n = len(lines)
         if last < 0:
@@ -165,44 +168,116 @@ class TheParser(Parser):
         kept.extend(lines[0:first])
         for i in range(first, next):
             line = lines[i]
-            # 有意跳过行尾内联注释，仅捕获整行注释
+            # Intentionally skip inline end-of-line comments, only capture full-line comments
             comment = self._extract_line_comment(line.strip(), tag)
             if comment is None:
                 kept.append(line)
             else:
                 comments.append(comment)
         kept.extend(lines[next:])
-        return comments, '\n'.join(kept) # 注意：统一改用 '\n' 并移除末尾换行，调用方需自行处理
+        return comments, '\n'.join(kept) # Uniformly use '\n' and remove trailing newline, caller must handle their own needs
 
     def _extract_line_comment(self, line: str, tag: str) -> str | None:
-        # 仅匹配整行注释（从第 0 列开始）；由 block_comment() 生成的多行内容保持不变
-        # 需要前导空格的标签应自行包含空格（例如 ' Author:')
+        # Only match full-line comments (starting at column 0 after strip); multi-line content generated by block_comment() remains unchanged
+        # Tags requiring leading space should include it themselves (e.g., ' Author:')
         line = line.strip()
-        # 假定带标签的注释从第 0 列开始，以刻意跳过 comment() 追加的内联注释
         prefix = self._line_comment_prefix()
-        if prefix != '': # 行注释示例：// Author: Elon Musk
+        if prefix != '': # Line comment example: // Author: Elon Musk
             prefix += tag
             if line.startswith(prefix):
-                return line[len(prefix):].strip() # 返回 'Elon Musk'
+                return line[len(prefix):].strip() # Returns 'Elon Musk'
             return None
 
         prefix = self._block_comment_prefix()
-        if prefix != '': # 仅处理单行块注释，例如 /* Author: Elon Musk */
+        if prefix != '': # Only handle single-line block comments, e.g., /* Author: Elon Musk */
             prefix += tag
             suffix = self._block_comment_suffix()
             if line.startswith(prefix) and line.endswith(suffix):
-                return line[len(prefix):-len(suffix)].strip() # 返回 'Elon Musk'
+                return line[len(prefix):-len(suffix)].strip() # Returns 'Elon Musk'
             return None
         return None
 
     def _block_comment_prefix(self) -> str:
-        # 如有需要可由具体语言覆盖
+        # Can be overridden by specific language implementations if needed
         return '/*'
 
     def _block_comment_suffix(self) -> str:
-        # 如有需要可由具体语言覆盖
+        # Can be overridden by specific language implementations if needed
         return '*/'
 
     def _line_comment_prefix(self) -> str:
-        # 如有需要可由具体语言覆盖
+        # Can be overridden by specific language implementations if needed
         return '//'
+
+    @staticmethod
+    def parsers() -> dict[str, Parser]:
+        # Dynamically import all supported parser classes to avoid circular imports
+        from ._parser.python import PythonParser
+        from ._parser.typescript import TypescriptParser
+        from ._parser.java import JavaParser
+        from ._parser.c import CParser
+        from ._parser.cpp import CppParser
+        from ._parser.csharp import CSharpParser
+        from ._parser.go import GoParser
+        from ._parser.rust import RustParser
+        from ._parser.bash import BashParser
+        from ._parser.html import HtmlParser
+
+        parser_classes = [
+            PythonParser,
+            TypescriptParser,
+            JavaParser,
+            CParser,
+            CppParser,
+            CSharpParser,
+            GoParser,
+            RustParser,
+            BashParser,
+            HtmlParser,
+        ]
+
+        factory: dict[str, Parser] = {}
+        for parser_class in parser_classes:
+            try:
+                parser = parser_class()
+            except Exception as e:  # Should not occur; each subclass should ensure it can be legally instantiated
+                raise ValueError(f"Failed to initialize parser for {parser_class.__name__}") from e
+            lang = parser.language()
+            if lang in factory:  # Should not occur; each subclass should ensure its language is unique
+                raise ValueError(f"Language {lang} is shared by multiple parsers: {parser_class.__name__}")
+            factory[lang] = parser
+
+        return factory
+
+    @staticmethod
+    def ext2parser() -> dict[str, Parser]:
+        # Build mapping from file extensions to parsers
+        map: dict[str, Parser] = {}
+        parsers = TheParser.parsers()
+        for parser in parsers.values():
+            for ext in parser.extensions():
+                ext = ext.lower()
+                # Each parser.extensions() ensures returned format has leading dot
+                if ext in map:  # Should not occur; e.g., C/C++ must each ensure their handled extensions are different
+                    raise ValueError(f"Extension {ext} is shared by multiple parsers: {map[ext].language()} and {parser.language()}")
+                map[ext] = parser
+        return map
+
+    @staticmethod
+    def create(language: str) -> Parser:
+        # Rebuild full parser instances to simplify code; cost is minimal, frequency is extremely low, performance impact negligible
+        parsers = TheParser.parsers()
+        if language not in parsers:
+            raise ValueError(f"Language {language} not supported")
+        return parsers[language]
+
+    @staticmethod
+    def create_by_filename(fn: str) -> Parser:
+        # Rebuild full parser instances to simplify code; cost is minimal, frequency is extremely low, performance impact negligible
+        ext2parser = TheParser.ext2parser()
+        # Multi-segment extensions like "foo.d.ts" will return last segment ".ts", sufficient to find parser
+        _, ext = os.path.splitext(fn)
+        ext = ext.lower()
+        if ext not in ext2parser:
+            raise ValueError(f"Extension {ext} not supported for {fn}")
+        return ext2parser[ext]

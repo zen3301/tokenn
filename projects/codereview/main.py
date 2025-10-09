@@ -1,26 +1,20 @@
-#%% ---------- Reviewed by: claude
-#%% $lang: 中文
-#%% ---------- [Overview]
-#%% 这是代码审查工具的CLI入口模块，通过argparse解析命令行参数，支持四种工作模式：单文件审查、目录审查、Git修改文件审查和综合报告生成。可选择codex或claude作为AI引擎，并支持多种可选参数（上下文、重试、超时、语言、临时目录）。
-#%% ---------- [Review]
-#%% 代码结构清晰，职责分离合理，main函数仅负责CLI参数解析和模式路由，实际审查逻辑完全封装在Review类中。四种工作模式的分支条件经过严格验证且逻辑正确。退出码设计合理：成功返回0，无文件处理返回-1。代码完成度100%，已通过完整的bring-up测试矩阵验证（Codex和Claude双引擎、单文件/目录/Git修改/综合报告/跨项目等多场景）。可维护性和可测试性优秀。
-#%% ---------- [Notes]
-#%% 四种工作模式通过精心设计的条件分支实现：modified模式优先级最高，其次是目录模式，再次是单文件模式，最后是综合报告模式
-#%% 退出码逻辑特殊但合理：成功处理返回0，无文件需处理时返回-1，在批处理和自动化场景下有助于区分空操作与失败
-#%% 综合模式支持传入任意路径（文件或目录），Review.review_proj会自动判断并在正确位置生成.REVIEW.md
-#%% 所有参数均有合理的默认值：retry=1, timeout=0（无超时）, lang=''（由AI自动判断）, context=''（无额外上下文）
-#%% ---------- [Imperfections]
-#%% 第25行条件判断使用了`not args.synthesize`作为单文件模式的条件，这种否定逻辑略显晦涩；建议在注释中明确说明'单文件模式不支持synthesize标志'
-#%% 第28行的综合报告模式没有验证路径的合法性，虽然Review.review_proj内部会处理，但在main入口处缺少参数语义验证可能导致用户困惑（例如传入不存在的文件名）
-#%% ----------
+#\/ ---------- Reviewed by: codex @ 2025-10-09 21:46:31
+#\/ $lang: English
+#\/ ---------- [Overview]
+#\/ CLI entry point wires parsed command-line flags to Codereview factory construction and dispatches to modified, directory, single-file, or synthesis workflows determined by path and synthesize flags.
+#\/ ---------- [Review]
+#\/ Structure is straightforward and aligns with the abstract Codereview contract; dispatch ordering guards mode precedence correctly, and early exits encode success via positive counts or truthy review payloads. Error propagation relies entirely on downstream Codereview methods, so this wrapper remains light but should inherit their edge-case handling.
+#\/ ---------- [Notes]
+#\/ Exit codes rely on downstream review methods returning either positive counts or truthy strings; any extension should preserve those conventions to avoid confusing CLI outcomes.
+#\/ ----------
 
 import argparse
 from pathlib import Path
-from .review import Review
+from .index import Codereview
 
 
 def main(argv: list[str]) -> int:
-    # 解析命令行参数
+    # Parse CLI arguments.
     parser = argparse.ArgumentParser(description="Code review.")
     parser.add_argument("--ai", choices=["codex", "claude"], required=True, help="AI cli to use for review.")
     parser.add_argument("--path", "-p", type=str, required=True, help="Path to review.")
@@ -33,25 +27,25 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--tmp", "-d", type=str, help="Temporary directory to dump logs.")
     args = parser.parse_args(argv)
 
-    review = Review(args.ai, args.context, args.retry, args.timeout, args.lang, args.tmp)
+    review = Codereview.create(args.ai, args.context, args.retry, args.timeout, args.lang, args.tmp)
 
-    # 四种工作模式（优先级从高到低）：
-    # 1. Git修改模式（-m）：扫描仓库所有变化文件
-    # 2. 目录模式（-p为目录）：遍历顶层文件（不递归）
-    # 3. 单文件模式（-p为文件且无-s）：审查单个文件
-    # 4. 综合模式（-s且-p为文件或目录）：生成目录级.REVIEW.md
+    # Four operating modes in descending priority:
+    # 1. Git modified mode (-m): scan every tracked change in the repository
+    # 2. Directory mode (-p is a directory): review top-level entries without recursion
+    # 3. Single-file mode (-p is file without -s): review the specified file
+    # 4. Synthesis mode (-s with file or directory): regenerate .REVIEW.md for the target scope
     if args.modified: # -m -p projects/ [-s]
-        # 输入路径必须在Git仓库内，否则异常退出
+        # Requires the path to reside inside a git repository or review_modified will abort.
         return 0 if review.review_modified(args.path, args.synthesize) > 0 else -1
 
     elif Path(args.path).is_dir(): # -p projects/ [-s]
         return 0 if review.review_path(args.path, args.synthesize) > 0 else -1
 
-    elif not args.synthesize: # -p projects/a.py（单文件模式不支持-s标志）
+    elif not args.synthesize: # -p projects/a.py (single-file mode does not allow -s)
         return 0 if review.review_code(args.path) else -1
 
-    else: # -p projects/.REVIEW.md -s 或 -p projects/ -s
-        # 根据路径（文件或目录）在正确位置生成或覆盖.REVIEW.md
+    else: # -p projects/.REVIEW.md -s or -p projects/ -s
+        # Generate or update .REVIEW.md in the correct location for the provided path.
         return 0 if review.review_proj(args.path) else -1
 
 
@@ -60,6 +54,5 @@ def cli() -> None:
     _sys.exit(main(_sys.argv[1:]))
 
 
-# pip install git+https://github.com/zen3301/tokenn.git#subdirectory=projects/codereview
 if __name__ == "__main__":
     cli()

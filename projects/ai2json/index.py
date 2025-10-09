@@ -1,49 +1,39 @@
-#%% ---------- Reviewed by: codex
-#%% $lang: 中文
-#%% ---------- [Overview]
-#%% 该模块提供 AI2JSON 抽象基类与工厂，规范不同 AI 适配器的初始化与执行接口，并通过延迟导入返回具体实现，整体结构简洁清晰，便于扩展新的 CLI 驱动 AI。
-#%% ---------- [Review]
-#%% 抽象基类接口清晰、类型标注完整，工厂模式实现得当且延迟导入避免循环依赖，当前实现可直接集成。建议在错误提示中包含支持的 AI 名称以提升可用性，除此之外无阻塞性问题。
-#%% ---------- [Notes]
-#%% 工厂通过延迟导入解耦具体实现，确保新增 AI 时只需扩展该分支。
-#%% ---------- [Imperfections]
-#%% 工厂抛出的 ValueError 未列出可用 AI 名称，调用方调试体验略差，可考虑在消息中补充支持列表。
-#%% ----------
+#\/ ---------- Reviewed by: codex @ 2025-10-09 21:07:24
+#\/ $lang: English
+#\/ ---------- [Overview]
+#\/ Defines an abstract AI2JSON base class with required lifecycle steps and a factory method that delegates creation to a concrete implementation resolved via delayed import.
+#\/ ---------- [Review]
+#\/ The class offers a clear ABC contract with detailed comments; implementation specifics appear deferred to other modules, leaving no actionable defects in this snippet.
+#\/ ----------
 
 from typing import Any
 from abc import ABC, abstractmethod
 
-# AI2JSON 抽象基类：定义统一的 AI 接口规范，所有具体 AI 实现需继承此类
+# AI2JSON abstract base class: defines unified AI interface specification; all concrete AI implementations must inherit this class
 class AI2JSON(ABC):
     @abstractmethod
     def ai(self) -> str:
-        # 返回 AI 名称标识，如 'codex'、'claude'
+        # Return AI identifier name, e.g., 'codex', 'claude'
         pass
 
     @abstractmethod
-    def init(self, system_prompt: str, user_prompt: str, timeout = 0) -> tuple[list[str], str | None, int]:
-        # 初始化 CLI 调用参数
-        # 返回：CLI 参数列表、标准输入提示内容（用于绕过命令行字符限制）、最终超时时间（秒）
+    def init(self, system_prompt: str, user_prompt: str, timeout: int = 0) -> tuple[list[str], str | None, int]:
+        # Initialize CLI invocation parameters
+        # Returns: CLI argument list, stdin prompt content (to bypass command-line character limits), final timeout value (seconds)
+        # timeout=0: dynamically calculate based on content length (default per-KB budget + default base overhead)
+        # timeout<0: use absolute value as per-KB budget (seconds), add default base overhead
+        # timeout>0: directly use this value as final timeout
         pass
 
     @abstractmethod
     def exec(self, args: list[str], timeout: int, stdin_prompt: str | None = None) -> tuple[Any, str | None]:
-        # 执行 CLI 并解析结果
-        # 返回：解析后的 JSON 对象（字典）、错误信息（成功时为 None）
+        # Execute CLI and parse result
+        # Returns: parsed JSON object (expected to be dict), error message (None on success)
         pass
 
-
-# 工厂类：通过延迟导入创建具体 AI 实现，避免循环依赖
-class AI2JSONFactory:
     @staticmethod
-    def create(ai: str) -> AI2JSON:
-        # 根据 AI 名称创建对应实现
-        if ai == 'codex':
-            from .ai.codex import Codex2JSON
-            return Codex2JSON()
-        elif ai == 'claude':
-            from .ai.claude import Claude2JSON
-            return Claude2JSON()
-        else:
-            # 建议在错误提示中列出受支持的 AI 名称，方便调用方快速定位配置错误
-            raise ValueError(f"Invalid AI: {ai}")
+    def create(ai: str, tmp: str | None = None) -> "AI2JSON":
+        # Factory method: create concrete AI implementation via delayed imports to avoid circular dependencies
+        # Supported AI: 'codex' or 'claude'
+        from .ai2json import TheAI2JSON
+        return TheAI2JSON.create(ai, tmp)
