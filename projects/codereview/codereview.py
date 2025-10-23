@@ -170,14 +170,17 @@ class TheCodereview(Codereview):
         md_path_str = str(md_path)
         exts = tuple(Parser.ext2parser().keys())
         codefix = fix > 0
+        reviewed = 'fixed' if codefix else 'reviewed'
         for file in files:
             # Lowercase ensures cached reviews are picked up even when filesystem reports uppercase suffixes.
             if not file.lower().endswith(exts):  # Process only supported languages
                 continue
             review = self.project.extract_review(file)  # Pull existing review if available
             if review and '---------- [Review]' in review and not (codefix and '---------- [Issues]' in review):
+                print(f'{file} already {reviewed}')
                 reviews[file] = review
             else:
+                print(f'{file} not {reviewed}')
                 to_review.append(file)
 
         reviews.update(self.review_list(to_review, parallel, fix)) # Add newly reviewed files
