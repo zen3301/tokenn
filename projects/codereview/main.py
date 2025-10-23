@@ -8,6 +8,9 @@
 #\/ Exit codes rely on downstream review methods returning either positive counts or truthy strings; any extension should preserve those conventions to avoid confusing CLI outcomes.
 #\/ ----------
 
+#\% pip uninstall codereview
+#\% pip install git+https://github.com/zen3301/tokenn.git#subdirectory=projects/codereview
+
 import argparse
 from pathlib import Path
 from .index import Codereview
