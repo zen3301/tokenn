@@ -12,7 +12,6 @@
 #\% - Abstract class and methods only except static method(s), providing all context (without implementation) for callers
 #\% - Static factory method(s)
 
-from typing import dict
 from abc import ABC, abstractmethod
 
 
@@ -23,7 +22,7 @@ class Codereview(ABC):
         pass
 
     @abstractmethod
-    def review_list(self, files: list[str], parallel: bool = False) -> dict:
+    def review_list(self, files: list[str], parallel: bool = False) -> dict[str, str]:
         # Review a list of files and return a mapping: file -> review content
         pass
 
