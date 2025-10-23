@@ -183,5 +183,6 @@ class TheCodereview(Codereview):
                 print(f'{file} not {reviewed}')
                 to_review.append(file)
 
+        print(f'--- {len(to_review)} to be {reviewed} ...')
         reviews.update(self.review_list(to_review, parallel, fix)) # Add newly reviewed files
         return self.project.review(self.reviewer, md_path_str, reviews, folders, references, self.context, self.lang, self.timeout)
