@@ -46,7 +46,7 @@ def main(argv: list[str]) -> int:
         return 0 if review.review_path(args.path, args.synthesize, args.parallel) > 0 else -1
 
     elif not args.synthesize: # -p projects/a.py (single-file mode does not allow -s)
-        return 0 if review.review_code(args.path, args.parallel) else -1
+        return 0 if review.review_code(args.path) else -1
 
     else: # -p projects/.REVIEW.md -s or -p projects/ -s
         # Generate or update .REVIEW.md in the correct location for the provided path.
