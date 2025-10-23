@@ -132,7 +132,7 @@ class TheReviewFile(ReviewFile):
             # Invoke reviewer and ensure AST validation holds before accepting output.
             data, err = reviewer.exec(args=args, timeout=timeout, stdin_prompt=stdin_prompt, parser=parser, expected=logic)
             dt = time.time() - t0
-            print(f"... Reviewed in {int(dt)}\"")
+            print(f"... Reviewed in {int(dt)}\" : {src_path}")
             if data and not err:
                 # Successful review with AST match; persist annotations.
                 return self._update(ai, lang, parser, src_path, data, requirements)

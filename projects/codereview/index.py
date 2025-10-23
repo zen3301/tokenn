@@ -12,7 +12,9 @@
 #\% - Abstract class and methods only except static method(s), providing all context (without implementation) for callers
 #\% - Static factory method(s)
 
+from typing import dict
 from abc import ABC, abstractmethod
+
 
 class Codereview(ABC):
     @abstractmethod
@@ -21,22 +23,22 @@ class Codereview(ABC):
         pass
 
     @abstractmethod
-    def review_list(self, files: list[str]) -> int:
-        # Review a list of files, skipping unsupported entries; returns count reviewed
+    def review_list(self, files: list[str], parallel: bool = False) -> dict:
+        # Review a list of files and return a mapping: file -> review content
         pass
 
     @abstractmethod
-    def review_path(self, path: str, synthesize: bool = False) -> int:
+    def review_path(self, path: str, synthesize: bool = False, parallel: bool = False) -> int:
         # Review all code files in the given path (non-recursive, skips unsupported types)
         pass
 
     @abstractmethod
-    def review_modified(self, path: str, synthesize: bool = False) -> int:
+    def review_modified(self, path: str, synthesize: bool = False, parallel: bool = False) -> int:
         # Review modified files in the repository; optionally synthesize .REVIEW.md per affected dir
         pass
 
     @abstractmethod
-    def review_proj(self, path: str) -> str | None:
+    def review_proj(self, path: str, parallel: bool = False) -> str | None:
         # Complete outstanding reviews and generate a project-level .REVIEW.md
         pass
 

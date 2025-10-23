@@ -25,6 +25,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--timeout", "-t", type=int, default=0, help="Timeout for review.")
     parser.add_argument("--lang", "-l", type=str, default='', help="Language for review.")
     parser.add_argument("--tmp", "-d", type=str, help="Temporary directory to dump logs.")
+    parser.add_argument("--parallel", action="store_true", help="Enable parallel review.")
     args = parser.parse_args(argv)
 
     review = Codereview.create(args.ai, args.context, args.retry, args.timeout, args.lang, args.tmp)
@@ -36,17 +37,17 @@ def main(argv: list[str]) -> int:
     # 4. Synthesis mode (-s with file or directory): regenerate .REVIEW.md for the target scope
     if args.modified: # -m -p projects/ [-s]
         # Requires the path to reside inside a git repository or review_modified will abort.
-        return 0 if review.review_modified(args.path, args.synthesize) > 0 else -1
+        return 0 if review.review_modified(args.path, args.synthesize, args.parallel) > 0 else -1
 
     elif Path(args.path).is_dir(): # -p projects/ [-s]
-        return 0 if review.review_path(args.path, args.synthesize) > 0 else -1
+        return 0 if review.review_path(args.path, args.synthesize, args.parallel) > 0 else -1
 
     elif not args.synthesize: # -p projects/a.py (single-file mode does not allow -s)
-        return 0 if review.review_code(args.path) else -1
+        return 0 if review.review_code(args.path, args.parallel) else -1
 
     else: # -p projects/.REVIEW.md -s or -p projects/ -s
         # Generate or update .REVIEW.md in the correct location for the provided path.
-        return 0 if review.review_proj(args.path) else -1
+        return 0 if review.review_proj(args.path, args.parallel) else -1
 
 
 def cli() -> None:

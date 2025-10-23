@@ -8,13 +8,14 @@
 #\/ Case-normalized suffix filtering now happens in both review_code() and review_proj(), which protects cached results and new reviews for files emitted with uppercase extensions on case-sensitive platforms.
 #\/ ----------
 
+import os
 import json
 from git import Repo
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from ..codeparser.index import Parser
 from .architecture import Reviewer, ReviewFile, ReviewProject
 from .index import Codereview
-
 
 class TheCodereview(Codereview):
     def __init__(self, ai: str, context = '', retry = 1, timeout=0, lang = '', tmp: str | None = None):
@@ -101,33 +102,42 @@ class TheCodereview(Codereview):
         context = json.dumps(ctx, indent=2, ensure_ascii=False)
         return self.file.review(self.reviewer, src_path, references, context, self.lang, self.timeout, self.retry, self.tmp)
 
-    def review_list(self, files: list[str]) -> int:
-        # Review a list of files and count successful evaluations
-        count = 0
-        for file in files:
-            if self.review_code(file):
-                count += 1
-        return count
+    def review_list(self, files: list[str], parallel: bool = False) -> dict[str, str]:
+        # Review a list of files and return a mapping: file -> review content
+        reviews = {}
+        if parallel:
+            with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+                futures = [executor.submit(self.review_code, file) for file in files]
+                results = [future.result() for future in futures]
+            for file, review in zip(files, results):
+                if review is not None:
+                    reviews[file] = review
+        else:
+            for file in files:
+                review = self.review_code(file)
+                if review is not None:
+                    reviews[file] = review
+        return reviews
 
-    def review_path(self, path: str, synthesize: bool = False) -> int:
+    def review_path(self, path: str, synthesize: bool = False, parallel: bool = False) -> int:
         # Review all supported files located directly under the provided path
         files = [str(f) for f in Path(path).resolve().glob('*.*')]
-        n = self.review_list(files)  # Run file-level reviews on all sources
+        n = len(self.review_list(files, parallel))  # Run file-level reviews on all sources
         if synthesize:  # Optionally generate or update .REVIEW.md for the directory
-            self.review_proj(path)
+            self.review_proj(path, parallel)
         return n
 
-    def review_modified(self, path: str, synthesize: bool = False) -> int:
+    def review_modified(self, path: str, synthesize: bool = False, parallel: bool = False) -> int:
         # Review files with pending git changes and optionally synthesize directory reviews
         files = self._git_modified(path)
-        n = self.review_list(files)  # Run file-level reviews on modified sources
+        n = len(self.review_list(files, parallel))  # Run file-level reviews on modified sources
         if synthesize:
             paths = self._paths(files)  # Collect affected directories in descending length order
             for path in paths:  # Regenerate .REVIEW.md for each directory
-                self.review_proj(path)
+                self.review_proj(path, parallel)
         return n
 
-    def review_proj(self, path: str) -> str | None:
+    def review_proj(self, path: str, parallel: bool = False) -> str | None:
         # Generate a project-level review report (.REVIEW.md)
         path_obj = Path(path).resolve()
         if path_obj.exists() and path_obj.is_dir():
@@ -147,6 +157,7 @@ class TheCodereview(Codereview):
         folders = [str(f) for f in dir_path.glob('*/') if not f.name.startswith('.')]
 
         reviews = {}
+        to_review = []
         md_path_str = str(md_path)
         exts = tuple(Parser.ext2parser().keys())
         for file in files:
@@ -154,10 +165,10 @@ class TheCodereview(Codereview):
             if not file.lower().endswith(exts):  # Process only supported languages
                 continue
             review = self.project.extract_review(file)  # Pull existing review if available
-            if not review:
-                review = self.review_code(file)  # Run a new review when no cached review exists
-                if not review or review == '':
-                    continue
-            reviews[file] = review
+            if review:
+                reviews[file] = review
+            else:
+                to_review.append(file)
 
+        reviews.update(self.review_list(to_review, parallel)) # Add newly reviewed files
         return self.project.review(self.reviewer, md_path_str, reviews, folders, references, self.context, self.lang, self.timeout)
