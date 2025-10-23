@@ -97,15 +97,27 @@ class TheReviewFile(ReviewFile):
         th = 'st' if d == 1 else 'nd' if d == 2 else 'rd' if d == 3 else 'th'
         return f"{i}{th}"
 
+    def _log(self, src_path: str, tmp: str | None = None) -> Path | None:
+        # Determine error-log path when a temporary directory is provided.
+        if tmp is None or tmp == '':
+            return None
+        else:
+            fn = src_path.replace('\\', '/').split('/')[-1]
+            log = Path(tmp).resolve() / f'{fn}.log'
+            log.parent.mkdir(parents=True, exist_ok=True)
+            return log
+
     def review(self, reviewer: Reviewer, src_path: str, references: list[str], context = '', lang = '', timeout=0, retry = 1, tmp: str | None = None) -> str | None:
         # Primary review flow: load source, invoke AI reviewer with retries, AST-verify, then write back annotations.
         parser = Parser.create_by_filename(src_path)
         request = self._load(parser, src_path, references, context)
-        source = request['input']
-        if source == '':
+        if request['input'] == '':
             return ''
+        return self._review(request, parser, reviewer, src_path, references, context, lang, timeout, retry, tmp)
 
+    def _review(self, request: Any, parser: Parser, reviewer: Reviewer, src_path: str, lang = '', timeout=0, retry = 1, tmp: str | None = None) -> str | None:
         # Parse the AST to validate later that AI output preserves logic.
+        source = request['input']
         logic = parser.parse(source)
 
         # Initialize reviewer prompts and runtime parameters.
@@ -114,12 +126,7 @@ class TheReviewFile(ReviewFile):
         ai = reviewer.ai()
 
         # Determine error-log path when a temporary directory is provided.
-        if tmp is None or tmp == '':
-            log = None
-        else:
-            fn = src_path.replace('\\', '/').split('/')[-1]
-            log = Path(tmp).resolve() / f'{fn}.log'
-            log.parent.mkdir(parents=True, exist_ok=True)
+        log = self._log(src_path, tmp)
 
         # Pull requirement comments for reinsertion later when present.
         requirements = request['requirements']
@@ -127,7 +134,8 @@ class TheReviewFile(ReviewFile):
         # Retry loop: attempt up to `retry` times, logging failures between attempts.
         for i in range(retry):
             # Compute ordinal suffix for human-friendly progress output.
-            print(f"Reviewing {src_path} for the {self._th(i+1)} time(s)...")
+            th = '' if retry <= 1 else f"for the {self._th(i+1)} time "
+            print(f"Reviewing {src_path} {th}...")
             t0 = time.time()
             # Invoke reviewer and ensure AST validation holds before accepting output.
             data, err = reviewer.exec(args=args, timeout=timeout, stdin_prompt=stdin_prompt, parser=parser, expected=logic)

@@ -1,11 +1,11 @@
-#\/ ---------- Reviewed by: codex @ 2025-10-09 23:48:30
+#\/ ---------- Reviewed by: codex @ 2025-10-23 19:13:34
 #\/ $lang: English
 #\/ ---------- [Overview]
-#\/ Defines a lightweight abstract `Codereview` interface with typed entry points for multiple review operations plus a static factory that defers to the default concrete implementation via a local import to avoid circular references.
+#\/ The file defines an abstract Codereview interface with uniform method signatures for reviewing individual files, lists, paths, modified content, and entire projects, alongside a static factory for obtaining the concrete implementation.
 #\/ ---------- [Review]
-#\/ The interface delivers a clean abstract surface and meets the stated requirements, with consistent type hints and a reasonable static factory. The concrete dependency pulled in by the factory is intentional, so there are no critical correctness risks detected. Testability depends on the availability of other modules but is acceptable at the interface layer.
+#\/ Interface design is consistent and abstract-only as required, with clear parameters and return annotations. The static factory delegates instantiation cleanly via a local import. Overall structure appears complete and ready for implementation.
 #\/ ---------- [Notes]
-#\/ Static factory currently hardwires `TheCodereview`; swapping implementations would require edits here.
+#\/ Local import inside create() avoids circular dependencies while keeping the interface lightweight.
 #\/ ----------
 
 #\% Public facing interface:
@@ -17,32 +17,32 @@ from abc import ABC, abstractmethod
 
 class Codereview(ABC):
     @abstractmethod
-    def review_code(self, src_path: str) -> str | None:
-        # Review a single source file
+    def review_code(self, src_path: str, fix: int = 0) -> str | None:
+        # Review/fix a single source file, fix=0 to review only, >0 as the maximum iterations of fix and review loops
         pass
 
     @abstractmethod
-    def review_list(self, files: list[str], parallel: bool = False) -> dict[str, str]:
-        # Review a list of files and return a mapping: file -> review content
+    def review_list(self, files: list[str], parallel: bool = False, fix: int = 0) -> dict[str, str]:
+        # Review/fix a list of files and return a mapping: file -> review content
         pass
 
     @abstractmethod
-    def review_path(self, path: str, synthesize: bool = False, parallel: bool = False) -> int:
-        # Review all code files in the given path (non-recursive, skips unsupported types)
+    def review_path(self, path: str, synthesize: bool = False, parallel: bool = False, fix: int = 0) -> int:
+        # Review/fix all code files in the given path (non-recursive, skips unsupported types)
         pass
 
     @abstractmethod
-    def review_modified(self, path: str, synthesize: bool = False, parallel: bool = False) -> int:
-        # Review modified files in the repository; optionally synthesize .REVIEW.md per affected dir
+    def review_modified(self, path: str, synthesize: bool = False, parallel: bool = False, fix: int = 0) -> int:
+        # Review/fix modified files in the repository; optionally synthesize .REVIEW.md per affected dir
         pass
 
     @abstractmethod
-    def review_proj(self, path: str, parallel: bool = False) -> str | None:
-        # Complete outstanding reviews and generate a project-level .REVIEW.md
+    def review_proj(self, path: str, parallel: bool = False, fix: int = 0) -> str | None:
+        # Complete/fix outstanding reviews and generate a project-level .REVIEW.md
         pass
 
     @staticmethod
-    def create(ai: str, context = '', retry = 1, timeout=0, lang = '', tmp: str | None = None) -> "Codereview":
+    def create(ai: str, context = '', timeout=0, lang = '', tmp: str | None = None) -> "Codereview":
         # Factory method returning the default implementation while keeping the import local to dodge circular dependencies
         from .codereview import TheCodereview
-        return TheCodereview(ai, context, retry, timeout, lang, tmp)
+        return TheCodereview(ai, context, timeout, lang, tmp)

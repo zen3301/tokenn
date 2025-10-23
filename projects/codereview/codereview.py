@@ -1,11 +1,11 @@
-#\/ ---------- Reviewed by: codex @ 2025-10-09 23:39:48
+#\/ ---------- Reviewed by: codex @ 2025-10-23 19:20:34
 #\/ $lang: English
 #\/ ---------- [Overview]
-#\/ TheCodereview orchestrator gathers diffs, git status, and parser filters; this revision case-normalizes extension checks so uppercase-suffixed files stay eligible for file and project review aggregation.
+#\/ Implements the main code review coordinator that stitches together reviewers, gathers Git context, and orchestrates file- and project-level reviews with optional parallel execution.
 #\/ ---------- [Review]
-#\/ Implementation quality remains high: the new lowercasing mirrors Parser.ext2parser() semantics, keeping cached uppercase reviews discoverable without touching downstream logic; behavior is consistent with retry and git routines though automated coverage still relies on integration tests.
+#\/ The fallback to a single worker when `os.cpu_count()` cannot provide a value resolves the previously reported crash, and the surrounding flow remains coherent and testable without any new concerns.
 #\/ ---------- [Notes]
-#\/ Case-normalized suffix filtering now happens in both review_code() and review_proj(), which protects cached results and new reviews for files emitted with uppercase extensions on case-sensitive platforms.
+#\/ Parallel execution now safely defaults to a single thread when CPU count cannot be detected, avoiding the earlier ThreadPoolExecutor crash.
 #\/ ----------
 
 import os
@@ -18,13 +18,13 @@ from .architecture import Reviewer, ReviewFile, ReviewProject
 from .index import Codereview
 
 class TheCodereview(Codereview):
-    def __init__(self, ai: str, context = '', retry = 1, timeout=0, lang = '', tmp: str | None = None):
+    def __init__(self, ai: str, context = '', timeout=0, lang = '', tmp: str | None = None):
         self.reviewer = Reviewer.create(ai, tmp)
         self.file = ReviewFile.create()
+        self.fixer = ReviewFile.createFixer()
         self.project = ReviewProject.create()
 
         self.context = context
-        self.retry = retry
         self.timeout = timeout
         self.lang = lang
         self.tmp = tmp
@@ -82,62 +82,71 @@ class TheCodereview(Codereview):
 
         # Sort descending by length so child directories are processed before parents
         return sorted(paths, key=len, reverse=True)
-
-    def review_code(self, src_path: str) -> str | None:
-        # Review a single code file, skipping unsupported file types
-        # Lowercase before suffix comparison so uppercase extensions (e.g., ".PY") stay reviewable.
-        if not src_path.lower().endswith(self.extensions):  # Check for supported extensions
-            return None
-
-        fn = src_path.replace('\\', '/').split('/')[-1]  # Extract filename
-        project = src_path[0:-len(fn)]  # Extract parent directory path
-        references = self._collect_references(project)
-
+    
+    def _diff(self, src_path: str) -> str:
         ctx: dict[str, str] = {}
         diff = self._git_diff(src_path)
         if diff != '':
             ctx['git-diff'] = diff
         if self.context != '':
             ctx['context'] = self.context
-        context = json.dumps(ctx, indent=2, ensure_ascii=False)
-        return self.file.review(self.reviewer, src_path, references, context, self.lang, self.timeout, self.retry, self.tmp)
+        return json.dumps(ctx, indent=2, ensure_ascii=False)
 
-    def review_list(self, files: list[str], parallel: bool = False) -> dict[str, str]:
+    def review_code(self, src_path: str, fix: int = 0) -> str | None:
+        # Review/fix a single source file, fix=0 to review only, >0 as the maximum iterations of fix and review loops
+        # Lowercase before suffix comparison so uppercase extensions (e.g., ".PY") stay reviewable.
+        if not src_path.lower().endswith(self.extensions):  # Check for supported extensions
+            return None
+
+        fn = src_path.replace('\\\\', '/').split('/')[-1]  # Extract filename
+        project = src_path[0:-len(fn)]  # Extract parent directory path
+        references = self._collect_references(project)
+
+        if fix > 0:
+            reviewer = self.fixer
+            retry = fix
+        else:
+            reviewer = self.reviewer
+            retry = 1
+        return reviewer.review(self.reviewer, src_path, references, self.context, self.lang, self.timeout, retry, self.tmp)
+
+    def review_list(self, files: list[str], parallel: bool = False, fix: int = 0) -> dict[str, str]:
         # Review a list of files and return a mapping: file -> review content
         reviews = {}
         if parallel:
-            with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-                futures = [executor.submit(self.review_code, file) for file in files]
+            workers = os.cpu_count() or 1  # Fallback to single worker when CPU count is unavailable.
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [executor.submit(self.review_code, file, fix) for file in files]
                 results = [future.result() for future in futures]
             for file, review in zip(files, results):
                 if review is not None:
                     reviews[file] = review
         else:
             for file in files:
-                review = self.review_code(file)
+                review = self.review_code(file, fix)
                 if review is not None:
                     reviews[file] = review
         return reviews
 
-    def review_path(self, path: str, synthesize: bool = False, parallel: bool = False) -> int:
+    def review_path(self, path: str, synthesize: bool = False, parallel: bool = False, fix: int = 0) -> int:
         # Review all supported files located directly under the provided path
         files = [str(f) for f in Path(path).resolve().glob('*.*')]
-        n = len(self.review_list(files, parallel))  # Run file-level reviews on all sources
+        n = len(self.review_list(files, parallel, fix))  # Run file-level reviews on all sources
         if synthesize:  # Optionally generate or update .REVIEW.md for the directory
-            self.review_proj(path, parallel)
+            self.review_proj(path, parallel, fix)
         return n
 
-    def review_modified(self, path: str, synthesize: bool = False, parallel: bool = False) -> int:
+    def review_modified(self, path: str, synthesize: bool = False, parallel: bool = False, fix: int = 0) -> int:
         # Review files with pending git changes and optionally synthesize directory reviews
         files = self._git_modified(path)
-        n = len(self.review_list(files, parallel))  # Run file-level reviews on modified sources
+        n = len(self.review_list(files, parallel, fix))  # Run file-level reviews on modified sources
         if synthesize:
             paths = self._paths(files)  # Collect affected directories in descending length order
             for path in paths:  # Regenerate .REVIEW.md for each directory
-                self.review_proj(path, parallel)
+                self.review_proj(path, parallel, fix)
         return n
 
-    def review_proj(self, path: str, parallel: bool = False) -> str | None:
+    def review_proj(self, path: str, parallel: bool = False, fix: int = 0) -> str | None:
         # Generate a project-level review report (.REVIEW.md)
         path_obj = Path(path).resolve()
         if path_obj.exists() and path_obj.is_dir():
@@ -148,7 +157,7 @@ class TheCodereview(Codereview):
             dir_path = md_path.parent
 
         dir_path.mkdir(parents=True, exist_ok=True)
-        project = str(dir_path).replace('\\', '/')  # Normalize Windows path separators
+        project = str(dir_path).replace('\\\\', '/')  # Normalize Windows path separators
         references = self._collect_references(project)
 
         # Include only top-level files whose extensions map to known parsers
@@ -170,5 +179,5 @@ class TheCodereview(Codereview):
             else:
                 to_review.append(file)
 
-        reviews.update(self.review_list(to_review, parallel)) # Add newly reviewed files
+        reviews.update(self.review_list(to_review, parallel, fix)) # Add newly reviewed files
         return self.project.review(self.reviewer, md_path_str, reviews, folders, references, self.context, self.lang, self.timeout)

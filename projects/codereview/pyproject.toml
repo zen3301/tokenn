@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codereview"
-version = "0.1.0"
+version = "0.1.1"
 description = "CLI code review tool using AI backends (Codex/Claude) with AST checks."
 readme = "README.md"
 authors = [{ name = "Dr. Zen" }]

@@ -1,11 +1,11 @@
-#\/ ---------- Reviewed by: codex @ 2025-10-09 23:47:43
+#\/ ---------- Reviewed by: codex @ 2025-10-23 19:13:29
 #\/ $lang: English
 #\/ ---------- [Overview]
-#\/ Abstract base definitions specify reviewer, file-level, and project-level APIs with typed signatures, module-level factories, and descriptive inline documentation for orchestrating AI-driven reviews across files and projects.
+#\/ Defines abstract reviewer interfaces that coordinate AI-backed reviews at file and project levels, providing signatures and documentation for initialization, execution, and aggregation while delegating concrete behavior to factory-resolved implementations.
 #\/ ---------- [Review]
-#\/ Overall structure is clean and typed, but each static factory method instantiates a concrete class. That directly contradicts the explicit requirement that this architecture module host abstract declarations only and forces knowledge of concrete implementations, undermining extensibility. No tests apply because this file is specification-only.
+#\/ The abstractions meet the stated requirements, exposing consistent method contracts and deferring implementation to downstream classes. Type hints and doc comments outline expectations clearly, and no correctness or maintainability risks are apparent in this interface layer.
 #\/ ---------- [Notes]
-#\/ The inline documentation explains orchestration duties for AI-powered review components and their expected inputs/outputs.
+#\/ Factory helpers import concrete implementations lazily to avoid circular dependencies while keeping base classes implementation-agnostic.
 #\/ ----------
 
 #\% Architecture breakdown of sub-modules, templates, and optional sub-systems (imported from sub-folders):
@@ -53,13 +53,12 @@ class ReviewFile(ABC):
     # File-level reviewer responsible for generating inline review artifacts.
 
     @abstractmethod
-    def review(self, reviewer: Reviewer, src_path: str, references: list[str], context = '', lang = '', timeout=0, retry = 1, tmp: str | None = None) -> str | None:
+    def review(self, reviewer: Reviewer, src_path: str, references: list[str], context = '', lang = '', timeout=0, tmp: str | None = None) -> str | None:
         # Pipeline: load source -> invoke AI review (with retries) -> validate AST -> emit inline annotations.
         # references: supplemental files forwarded to the reviewer.
         # context: optional metadata shared with the AI prompt.
         # lang: annotation language selection (default English).
         # timeout: wall-clock seconds allowed per execution.
-        # retry: max attempts; final AST mismatch keeps prior inline comments but still preserves the review payload.
         # tmp: scratch file for persisting review-time errors.
         pass
 
@@ -68,6 +67,12 @@ class ReviewFile(ABC):
         # Factory helper that prevents circular imports.
         from .reviewfile import TheReviewFile
         return TheReviewFile()
+
+    @staticmethod
+    def createFixer() -> "ReviewFile":
+        # Factory helper that prevents circular imports.
+        from .reviewfix import TheReviewFix
+        return TheReviewFix()
 
 
 class ReviewProject(ABC):
