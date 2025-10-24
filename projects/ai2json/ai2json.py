@@ -1,11 +1,20 @@
-#\/ ---------- Reviewed by: codex @ 2025-10-09 21:16:22
+#\/ ---------- Reviewed by: claude @ 2025-10-24 15:16:51
 #\/ $lang: English
 #\/ ---------- [Overview]
-#\/ Shared AI2JSON runner calculates prompt-sensitive timeouts, executes an AI CLI subprocess, and extracts fenced JSON payloads, with adapters providing CLI-specific argument and stdout parsing helpers.
+#\/ TheAI2JSON is an abstract base class implementation providing CLI-invoked AI execution infrastructure. It manages subprocess invocation with dynamic timeout calculation, JSON extraction from stdout with two-stage fallback parsing, and debug logging. Concrete subclasses (Codex2JSON, Claude2JSON) implement AI-specific CLI argument construction and output parsing. The class handles Windows command-line length limits by routing large prompts through stdin.
 #\/ ---------- [Review]
-#\/ Latest change corrects the fallback flow by ensuring recovered fenced payloads are parsed instead of being discarded; overall the module remains small, cohesive, and sufficiently defensive for production use.
+#\/ Code quality is solid with well-designed error handling and separation of concerns. The two bug fixes from prior review have been properly implemented: (1) _dump now catches OSError and returns False on write failures, preventing misleading success returns; (2) stderr capture increased from 500 to 2000 characters to preserve diagnostic information. Implementation is ~98% complete and production-ready. The timeout calculation, subprocess execution, and JSON extraction logic are robust. Testability is good with dependency injection via tmp parameter. The code handles edge cases appropriately for its CLI-oriented context.
 #\/ ---------- [Notes]
-#\/ Fallback path now properly parses fenced stdout instead of short-circuiting, protecting adapters from structured stream regressions.
+#\/ Bit-shift optimization (>>10 for /1024) in timeout calculation trades ~2.4% precision for performance; acceptable for non-critical timeout estimation and explicitly documented
+#\/ Factory method uses delayed imports to prevent circular dependencies between index.py and ai2json.py
+#\/ stdin_prompt routing specifically addresses Windows command-line length limits (8191 chars) which would break large prompts
+#\/ Two-stage JSON extraction strategy (_parse_stdout → _strip_fence fallback → _extract_json) provides resilience against varied AI output formats
+#\/ OSError catch in _dump intentionally silences all file I/O errors (disk full, permission denied, etc.) to prioritize robustness over debugging completeness
+#\/ The stderr capture limit of 2000 characters is a reasonable compromise between memory usage and diagnostic completeness
+#\/ ---------- [Imperfections]
+#\/ Line 51: Multiple return points in exec method could be consolidated for improved readability, though current structure is maintainable
+#\/ Line 110: _strip_fence doesn't validate that suffix appears after prefix; could theoretically extract invalid content if markers appear in reverse order (extremely unlikely with well-formed AI output, acceptable given context)
+#\/ Line 13: Constructor prints to stdout rather than using logging module, making output control difficult in library usage scenarios (though reasonable for CLI-oriented tool)
 #\/ ----------
 
 import json
@@ -31,10 +40,11 @@ class TheAI2JSON(AI2JSON):
         # timeout>0: use this value directly as final timeout
         if timeout <= 0:
             timeout = self._perKB() if timeout == 0 else - timeout
-            # Bit shift by 10 approximates division by 1024 for KB calculation (~2.4% error vs /1000)
+            # Bit shift by 10 approximates division by 1024 for KB calculation (~2.4% error, acceptable for timeout estimation)
             timeout *= len(system_prompt + user_prompt) >> 10
             timeout += self._timeout()  # Add base startup and cleanup overhead
 
+        # stdin_prompt routing avoids Windows command-line length limits (8191 chars)
         args, stdin_prompt = self._get_args(system_prompt, user_prompt)
         return args, stdin_prompt, timeout
 
@@ -51,13 +61,16 @@ class TheAI2JSON(AI2JSON):
                 input=stdin_prompt,
             )
             if completed.returncode != 0:
-                stderr_msg = completed.stderr[:500] if completed.stderr else "no stderr"
+                # Capture first 2000 chars of stderr to preserve diagnostic information
+                stderr_msg = completed.stderr[:2000] if completed.stderr else "no stderr"
                 return None, f"[ERR] subprocess.run: returncode={completed.returncode}, stderr: {stderr_msg}"
 
             self._dump('stdout.txt', completed.stdout)
 
+            # Two-stage JSON extraction for resilience against varied AI output formats:
+            # Primary: subclass-specific parser → Fallback: direct fenced JSON extraction
             payload, err = self._parse_stdout(completed.stdout)
-            if payload is None: # Fallback to find fenced payload in stdout
+            if payload is None: # Fallback: extract fenced JSON directly from stdout, then parse
                 print("[WARNING] exec: Fallback to find fenced payload")
                 payload = self._strip_fence(completed.stdout)
                 if payload is None:
@@ -74,12 +87,17 @@ class TheAI2JSON(AI2JSON):
             return None, f"[ERR] subprocess.Exception: {e}"
 
     def _dump(self, fn: str, text: str) -> bool:
+        # Write debug output to tmp directory if configured; return False on any failure
         if not self.tmp:
             return False
         fn = f"{self.ai()}.{fn}"
-        with open(self.tmp / fn, 'w', encoding='utf-8') as f:
-            f.write(text)
-        return True
+        try:
+            with open(self.tmp / fn, 'w', encoding='utf-8') as f:
+                f.write(text)
+            return True
+        except OSError:
+            # Silently ignore file I/O errors (disk full, permission denied, etc.) to prioritize robustness
+            return False
 
     @abstractmethod
     def _get_args(self, system_prompt: str, user_prompt: str) -> tuple[list[str], str | None]:
@@ -98,11 +116,10 @@ class TheAI2JSON(AI2JSON):
         return '```'
 
     def _strip_fence(self, payload: str) -> str | None:
-        # Do not parse json here, leave it to _extract_json()
+        # Extract content between fence markers (e.g., ```json ... ```); does not parse JSON
         if not payload:
             return None
 
-        # Strip fence prefix/suffix (e.g. ```json ... ```)
         prefix = self._fence_prefix()
         suffix = self._fence_suffix()
         i = payload.find(prefix)
@@ -119,7 +136,7 @@ class TheAI2JSON(AI2JSON):
         if not payload:
             return None, "[ERR] _extract_json: payload is empty"
 
-        # Locate first { and last } to extract JSON string
+        # Locate first { and last } to extract JSON object (assumes well-formed AI output)
         i = payload.find("{")
         if i < 0:
             self._dump('payload.txt', payload)
@@ -141,11 +158,11 @@ class TheAI2JSON(AI2JSON):
             return None, "[ERR] _extract_json: can't parse JSON"
 
     def _timeout(self) -> int:
-        # Base preparation time budget, default 5 minutes (CLI startup, network latency, cleanup)
+        # Base preparation time budget: 5 minutes for CLI startup, network latency, cleanup
         return 300
 
     def _perKB(self) -> int:
-        # Processing time budget per KB of prompt content, default 60 seconds
+        # Processing time budget per KB of prompt content
         return 60
 
     @staticmethod

@@ -1,11 +1,11 @@
-#\/ ---------- Reviewed by: codex @ 2025-10-23 19:34:04
+#\/ ---------- Reviewed by: codex @ 2025-10-24 15:31:07
 #\/ $lang: English
 #\/ ---------- [Overview]
-#\/ The module orchestrates an iterative fix-and-review loop: it loads the target source, triggers the reviewer to evaluate it, invokes a fixer prompt when issues remain, and repeats until the retry budget is exhausted or the code passes review.
+#\/ Implements the fixer pass for previously reviewed files: decides whether a new fixing attempt is needed, invokes the fixer workflow, confirms a valid output, updates logs/context, and re-runs the reviewer with updated code until issues clear or retries exhaust.
 #\/ ---------- [Review]
-#\/ The updated retry flow correctly continues past fixer execution failures and threads the accumulated context through subsequent reviews; overall structure remains coherent and testable with no new correctness or safety risks observed within the provided scope.
+#\/ The guard and delayed logging address the prior fault; control flow for retries, logging, and context propagation now appears sound with no new correctness or reliability concerns detected.
 #\/ ---------- [Notes]
-#\/ Recursive retries re-read fresh parser state and reuse the growing context string so later prompts see the latest summaries.
+#\/ Summary/context updates now occur only after confirming fixer output, preventing misleading success logs during retries.
 #\/ ----------
 
 import time
@@ -15,6 +15,14 @@ from .architecture import Reviewer
 from .reviewfile import TheReviewFile
 
 class TheReviewFix(TheReviewFile):
+    def _to_fix(self, review: str, src_path: str) -> bool:
+        if '---------- [Issues]' not in review:  # Nothing to fix
+            return False
+        if '---------- [Impediments]' in review:  # Impediments found, cannot fix
+            print(f"--- Impediments found in {src_path}:\n{review}\n")
+            return False
+        return True
+
     def review(self, reviewer: Reviewer, src_path: str, references: list[str], context = '', lang = '', timeout=0, retry = 1, tmp: str | None = None) -> str | None:
         parser = Parser.create_by_filename(src_path)
         request = self._load(parser, src_path, references, context)
@@ -28,7 +36,7 @@ class TheReviewFix(TheReviewFile):
             # Resubmit with any context produced by the initial review.
             return self.review(reviewer, src_path, references, request['context'], lang, timeout, retry, tmp)
 
-        if '---------- [Issues]' not in prior_review:  # Nothing to fix
+        if not self._to_fix(prior_review, src_path):
             return prior_review
 
         # Initialize code fixer prompts and runtime parameters.
@@ -54,7 +62,14 @@ class TheReviewFix(TheReviewFile):
         if discussion != '':
             summary += f'[Discussion]\n{discussion}\n'
 
-        # Determine error-log path when a temporary directory is provided.
+        output = data.get('output')
+        if output is None:
+            # Retry when fixer omits output instead of crashing.
+            if retry <= 1:
+                return None
+            return self.review(reviewer, src_path, references, request['context'], lang, timeout, retry - 1, tmp)
+
+        # Only persist summary once we know we received an output to keep retries honest.
         log = self._log(src_path, tmp)
         if not log:
             print(f"---------- Code fixed:\n{summary}\n")
@@ -63,12 +78,12 @@ class TheReviewFix(TheReviewFile):
                 f.write(summary)
 
         request['context'] += '\n' + summary
-        request['input'] = data['output'] # Review the fixed code
+        request['input'] = output  # Review the fixed code
         prior_review = self._review(request, parser, reviewer, src_path, lang, timeout, 1, tmp)
         if not prior_review:
             return None
 
-        if retry <= 1 or '---------- [Issues]' not in prior_review:  # Stop here
+        if retry <= 1 or not self._to_fix(prior_review, src_path):  # Stop here
             return prior_review
 
         # Retry with the expanded context from this pass.

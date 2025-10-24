@@ -1,11 +1,11 @@
-#\/ ---------- Reviewed by: codex @ 2025-10-10 00:15:30
+#\/ ---------- Reviewed by: codex @ 2025-10-24 15:27:33
 #\/ $lang: English
 #\/ ---------- [Overview]
-#\/ Module implements the review orchestration workflow: it loads and sanitizes source text, invokes the reviewer with retries backed by AST verification, and writes annotated results back to disk while logging failures with ordinal hints.
+#\/ Implements the file review pipeline: loads source with prior annotations, delegates to the Reviewer with retry and AST validation, then reinjects requirements and review metadata while respecting language overrides.
 #\/ ---------- [Review]
-#\/ Implementation remains stable: ordinal helper is now shared between progress and error logs, retry flow and AST validation guardrails are unchanged, and persistence logic is intact. Code remains maintainable and testable with no new regressions detected.
+#\/ The adjustments correctly guard optional sections and ensure caller-provided language overrides flow through to the persisted header; overall logic stays consistent and testable with no regressions spotted.
 #\/ ---------- [Notes]
-#\/ Ordinal formatting helper centralizes suffix handling for both review progress and retry warnings.
+#\/ Language preference now uses the explicit override end-to-end while falling back to stored metadata when absent.
 #\/ ----------
 
 import time
@@ -24,9 +24,9 @@ class TheReviewFile(ReviewFile):
             raise ValueError(f"Failed to read source file {src_path}: {e}") from e
 
         # Extract review comments tagged with '\/' returning (comments, residual source).
-        reviews, source = parser.extract_comments(src_code, '\/')
+        reviews, source = parser.extract_comments(src_code, '\\/')
         # Extract requirement comments tagged with '\%' returning (comments, residual source).
-        requirements, source = parser.extract_comments(source, '\%')
+        requirements, source = parser.extract_comments(source, '\\%')
 
         # Parse $lang: directive from historical review comments, defaulting to English.
         comment_language = 'English'
@@ -51,36 +51,38 @@ class TheReviewFile(ReviewFile):
     def _comment_section(self, comment: str, title: str) -> str:
         # Format a review section as '---------- [Title]\ncontent\n'.
         return f'---------- [{title}]\n{comment}\n'
+    
+    def _coment_text(self, data: Any, key: str) -> str:
+        # Some reviewer outputs omit these sections; handle missing keys gracefully.
+        text = data.get(key.lower())
+        return '' if (not isinstance(text, str) or text == '') else self._comment_section(text, key)
+    
+    def _coment_list(self, data: Any, key: str) -> str:
+        text = '\n'.join([s for s in data.get(key.lower(), []) if isinstance(s, str) and s.strip() != '']).strip()
+        return '' if text == '' else self._comment_section(text, key)
 
     def _update(self, ai: str, lang: str, parser: Parser, src_path: str, data: Any, requirements: str) -> str:
         # Assemble the review header, prepend it (and requirements, if any), then persist updated annotations.
         txt = f"---------- Reviewed by: {ai} @ {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
         txt += '$lang: ' + lang + '\n'
-        if data['overview'] != '':
-            txt += self._comment_section(data['overview'], 'Overview')
-        if data['review'] != '':
-            txt += self._comment_section(data['review'], 'Review')
-        notes_text = '\n'.join([s for s in data.get('notes', []) if isinstance(s, str) and s.strip() != '']).strip()
-        if notes_text != '':
-            txt += self._comment_section(notes_text, 'Notes')
-        issues_text = '\n'.join([s for s in data.get('issues', []) if isinstance(s, str) and s.strip() != '']).strip()
-        if issues_text != '':
-            txt += self._comment_section(issues_text, 'Issues')
-        imperfections_text = '\n'.join([s for s in data.get('imperfections', []) if isinstance(s, str) and s.strip() != '']).strip()
-        if imperfections_text != '':
-            txt += self._comment_section(imperfections_text, 'Imperfections')
+        txt += self._coment_text(data, 'Overview')
+        txt += self._coment_text(data, 'Review')
+        txt += self._coment_list(data, 'Notes')
+        txt += self._coment_list(data, 'Issues')
+        txt += self._coment_list(data, 'Imperfections')
+        txt += self._coment_list(data, 'Impediments')
         txt += '----------\n'
 
         # Trim source code, avoid duplication of review/requirement comments
         source = data['output'].strip('\n')
-        _, source = parser.extract_comments(source, '\/')
-        _, source = parser.extract_comments(source, '\%')
+        _, source = parser.extract_comments(source, '\\/')
+        _, source = parser.extract_comments(source, '\\%')
 
         if requirements != '': # If requirement comments exist, write them back at the top of the source.
-            source = parser.insert_comment(source = source, line = 0, comment = requirements + '\n', tag = '\%', block = False)
+            source = parser.insert_comment(source = source, line = 0, comment = requirements + '\n', tag = '\\%', block = False)
 
         # Insert the review comments at the top of the source.
-        source = parser.insert_comment(source = source, line = 0, comment = txt, tag = '\/', block = False)
+        source = parser.insert_comment(source = source, line = 0, comment = txt, tag = '\\/', block = False)
         Path(src_path).resolve().write_text(source, encoding="utf-8")
         return txt
 
@@ -117,16 +119,16 @@ class TheReviewFile(ReviewFile):
         request = self._load(parser, src_path, references, context)
         if request['input'] == '':
             return ''
-        return self._review(request, parser, reviewer, src_path, references, context, lang, timeout, retry, tmp)
+        return self._review(request, parser, reviewer, src_path, lang, timeout, retry, tmp)
 
     def _review(self, request: Any, parser: Parser, reviewer: Reviewer, src_path: str, lang = '', timeout=0, retry = 1, tmp: str | None = None) -> str | None:
         # Parse the AST to validate later that AI output preserves logic.
         source = request['input']
         logic = parser.parse(source)
 
-        # Initialize reviewer prompts and runtime parameters.
-        args, stdin_prompt, timeout = reviewer.init("prompts/codereview.md", request, parser, lang, timeout)
-        lang = request['comment_language']
+        override_lang = (lang or '').strip()
+        runtime_lang = override_lang or request['comment_language']  # Explicit overrides take precedence over stored metadata.
+        args, stdin_prompt, timeout = reviewer.init("prompts/codereview.md", request, parser, runtime_lang, timeout)
         ai = reviewer.ai()
 
         # Determine error-log path when a temporary directory is provided.
@@ -147,7 +149,7 @@ class TheReviewFile(ReviewFile):
             print(f"... Reviewed in {int(dt)}\" : {src_path}")
             if data and not err:
                 # Successful review with AST match; persist annotations.
-                return self._update(ai, lang, parser, src_path, data, requirements)
+                return self._update(ai, runtime_lang, parser, src_path, data, requirements)
             else:
                 # Record the failure and continue retrying when allowed.
                 self._error(i+1, src_path, data, err, log)
@@ -158,6 +160,6 @@ class TheReviewFile(ReviewFile):
                     # Final retry failed on AST mismatch: discard AI edits but keep metadata.
                     print(f"Let's ignore the modified inline comments, just update the review metadata.")
                     data['output'] = source
-                    return self._update(ai, lang, parser, src_path, data, requirements)
+                    return self._update(ai, runtime_lang, parser, src_path, data, requirements)
 
         return None

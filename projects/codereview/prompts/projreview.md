@@ -42,7 +42,8 @@ Output JSON format:
   "notes": string[], // special things to mention, e.g. unusual tricks, assumptions, critical implementation decisions and etc (ensure in `comment_language`). leave it to [] if nothing to point out
   "issues": string[], // critical issues, bugs, typos, or severe disagreements (ensure in `comment_language`), leave it to [] if nothing to point out
   "imperfections": string[], // non-critical flaws, minor performance concerns, low risk extreme eage cases (ensure in `comment_language`), leave it to [] if nothing to point out
-   "error": string, // empty '' if succeed, or error message if failed in process
+  "impediments": string[], // only execution blockers caused by missing/ambiguous specs that prevent safe progress without speculation; each item should state what is missing, where it manifests (file/line or area), why it blocks execution, and the specific clarification needed (ensure in `comment_language`). Use [] if none
+  "error": string, // empty '' if succeed, or error message if failed in process
 }
 
 VALIDATION & ERRORS:

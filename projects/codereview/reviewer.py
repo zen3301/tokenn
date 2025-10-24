@@ -1,11 +1,11 @@
-#\/ ---------- Reviewed by: codex @ 2025-10-09 23:14:26
+#\/ ---------- Reviewed by: codex @ 2025-10-24 15:22:44
 #\/ $lang: English
 #\/ ---------- [Overview]
-#\/ Wrapper around AI2JSON that prepares prompt inputs, invokes the AI, and post-processes results while optionally normalizing AST outputs via a Parser.
+#\/ TheReviewer orchestrates CLI interactions by loading system prompts, serializing requests, and validating the AI JSON reply before passing it back to callers. It also enforces optional AST equivalence when a parser is provided, ensuring downstream review workflows can trust the structured payload.
 #\/ ---------- [Review]
-#\/ Structure is coherent and fulfils the stated responsibilities with consistent validation; no blocking correctness or safety issues identified though behavior still depends on upstream contracts being honored.
+#\/ Implementation appears production-ready: prompt assembly handles defaults, CLI response validation guards required fields, and AST comparison reports mismatches while returning data for retries. Behavior aligns with surrounding pipeline expectations, and code remains testable via injection of Parser and AI2JSON adapters.
 #\/ ---------- [Notes]
-#\/ The data_check method explicitly returns both the payload and an AST mismatch error so callers can access partial results when the AST differs.
+#\/ AST validation returns both the structured payload and the mismatch error, enabling callers to reuse metadata while discarding unsafe edits.
 #\/ ----------
 
 import json
@@ -83,6 +83,11 @@ class TheReviewer(Reviewer):
             data["imperfections"] = []
         elif not isinstance(data.get("imperfections"), list):
             return None, f"[ERR] _data_check: <imperfections> must be a string list"
+
+        if not data.get("impediments"):
+            data["impediments"] = []
+        elif not isinstance(data.get("impediments"), list):
+            return None, f"[ERR] _data_check: <impediments> must be a string list"
 
         # When a parser is provided, enforce output typing and optionally compare ASTs.
         if parser is not None:

@@ -1,11 +1,11 @@
-#\/ ---------- Reviewed by: codex @ 2025-10-23 19:13:34
+#\/ ---------- Reviewed by: codex @ 2025-10-24 15:18:43
 #\/ $lang: English
 #\/ ---------- [Overview]
-#\/ The file defines an abstract Codereview interface with uniform method signatures for reviewing individual files, lists, paths, modified content, and entire projects, alongside a static factory for obtaining the concrete implementation.
+#\/ Defines the abstract Codereview interface that exposes review entry points for single files, lists, paths, modified sets, and full projects, plus a factory method to obtain the concrete implementation.
 #\/ ---------- [Review]
-#\/ Interface design is consistent and abstract-only as required, with clear parameters and return annotations. The static factory delegates instantiation cleanly via a local import. Overall structure appears complete and ready for implementation.
+#\/ The abstraction cleanly matches the stated requirements: all public methods remain abstract (besides the static factory), signatures appear consistent, and the factory defers import to avoid circular dependencies. No defects found.
 #\/ ---------- [Notes]
-#\/ Local import inside create() avoids circular dependencies while keeping the interface lightweight.
+#\/ Static factory defers importing TheCodereview until call time to avoid circular imports.
 #\/ ----------
 
 #\% Public facing interface:
@@ -17,12 +17,12 @@ from abc import ABC, abstractmethod
 
 class Codereview(ABC):
     @abstractmethod
-    def review_code(self, src_path: str, fix: int = 0) -> str | None:
-        # Review/fix a single source file, fix=0 to review only, >0 as the maximum iterations of fix and review loops
+    def review_code(self, src_path: str, fix: int = 0, git_diff: bool = False) -> str | None:
+        # Review/fix a single source file (optionally include the git diff in context), fix=0 to review only, >0 as the maximum iterations of fix and review loops
         pass
 
     @abstractmethod
-    def review_list(self, files: list[str], parallel: bool = False, fix: int = 0) -> dict[str, str]:
+    def review_list(self, files: list[str], parallel: bool = False, fix: int = 0, git_diff: bool = False) -> dict[str, str]:
         # Review/fix a list of files and return a mapping: file -> review content
         pass
 

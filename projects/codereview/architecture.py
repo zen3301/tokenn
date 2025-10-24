@@ -1,11 +1,11 @@
-#\/ ---------- Reviewed by: codex @ 2025-10-23 19:13:29
+#\/ ---------- Reviewed by: codex @ 2025-10-24 15:18:45
 #\/ $lang: English
 #\/ ---------- [Overview]
-#\/ Defines abstract reviewer interfaces that coordinate AI-backed reviews at file and project levels, providing signatures and documentation for initialization, execution, and aggregation while delegating concrete behavior to factory-resolved implementations.
+#\/ Defines abstract reviewer interfaces for orchestrating AI-driven project and file reviews, with static factories supplying concrete implementations while avoiding circular imports.
 #\/ ---------- [Review]
-#\/ The abstractions meet the stated requirements, exposing consistent method contracts and deferring implementation to downstream classes. Type hints and doc comments outline expectations clearly, and no correctness or maintainability risks are apparent in this interface layer.
+#\/ Interfaces are clean, pure abstractions with comprehensive method contracts and consistent typing; architecture requirement is satisfied and ready for downstream implementations.
 #\/ ---------- [Notes]
-#\/ Factory helpers import concrete implementations lazily to avoid circular dependencies while keeping base classes implementation-agnostic.
+#\/ Static factory methods defer imports to avoid circular dependencies while returning concrete reviewers.
 #\/ ----------
 
 #\% Architecture breakdown of sub-modules, templates, and optional sub-systems (imported from sub-folders):
@@ -53,12 +53,13 @@ class ReviewFile(ABC):
     # File-level reviewer responsible for generating inline review artifacts.
 
     @abstractmethod
-    def review(self, reviewer: Reviewer, src_path: str, references: list[str], context = '', lang = '', timeout=0, tmp: str | None = None) -> str | None:
+    def review(self, reviewer: Reviewer, src_path: str, references: list[str], context = '', lang = '', timeout=0, retry = 1, tmp: str | None = None) -> str | None:
         # Pipeline: load source -> invoke AI review (with retries) -> validate AST -> emit inline annotations.
         # references: supplemental files forwarded to the reviewer.
         # context: optional metadata shared with the AI prompt.
         # lang: annotation language selection (default English).
         # timeout: wall-clock seconds allowed per execution.
+        # retry: maximum number of retries.
         # tmp: scratch file for persisting review-time errors.
         pass
 

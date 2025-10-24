@@ -1,11 +1,11 @@
-#\/ ---------- Reviewed by: codex @ 2025-10-09 23:31:23
+#\/ ---------- Reviewed by: codex @ 2025-10-24 15:36:21
 #\/ $lang: English
 #\/ ---------- [Overview]
-#\/ Project adapter prepares project-level review payloads, renders consolidated `.REVIEW.md` trees, and mines inline annotations for reuse; helpers coordinate folder discovery, list materialization, and language detection around the core reviewer execution loop.
+#\/ Coordinates project-level review loading, path normalization, and .REVIEW.md synthesis using AI responses, while also extracting inline review annotations through the parser.
 #\/ ---------- [Review]
-#\/ Core path-safety and tree-building routines look consistent with the surrounding tooling, yet inline extraction remains unsafe: cached reviews without a `[Review]` section (which still happens when the AI returns only overviews/notes) are discarded, so project synthesis re-runs files and loses real feedback; the area needs regression coverage around extraction outputs.
+#\/ The tweak properly anchors AI-supplied relative paths to the review prefix before relativizing, eliminating the previous ValueError and keeping the markdown refresh flow intact; no regressions spotted.
 #\/ ---------- [Notes]
-#\/ Extraction now documents its dependency on serialized reviewer headers; consumers must guarantee `[Review]` presence until the logic is fixed.
+#\/ _paths2relative now resolves non-absolute inputs against the review prefix, so project-relative keys remain supported without escaping the allowed tree.
 #\/ ----------
 
 import time
@@ -71,12 +71,25 @@ class TheReviewProject(ReviewProject):
 
     def _paths2relative(self, paths: list[str], prefix: str) -> list[str]:
         # Convert candidate paths into prefix-relative, POSIX-style strings.
-        try:
-            # VERIFIED! Inputs already resolve under the current working directory and within the prefix subtree.
-            return [str(Path(path).resolve().relative_to(prefix)).replace('\\', '/') for path in paths]
-        except Exception as e:
-            # VERIFIED! No handling needed because this branch should remain unreachable in supported flows.
-            raise ValueError(f"Some path is not in the prefix {prefix}") from e
+        prefix_path = Path(prefix)
+        if not prefix_path.is_absolute():
+            prefix_path = (Path.cwd() / prefix_path).resolve()
+        else:
+            prefix_path = prefix_path.resolve()
+
+        relatives = []
+        for raw in paths:
+            candidate = Path(raw)
+            if candidate.is_absolute():
+                resolved = candidate.resolve()
+            else:
+                resolved = (prefix_path / candidate).resolve()  # Relative AI paths must stay rooted under the prefix.
+            try:
+                relatives.append(resolved.relative_to(prefix_path).as_posix())
+            except ValueError as e:
+                # VERIFIED! No handling needed because this branch should remain unreachable in supported flows.
+                raise ValueError(f"Some path is not in the prefix {prefix}") from e
+        return relatives
 
     def _update(self, ai: str, request: Any, data: Any) -> str:
         # Emit the refreshed .REVIEW.md body, combining the file tree summary and the structured review sections.
@@ -123,6 +136,7 @@ class TheReviewProject(ReviewProject):
         md += self._list(data, "Notes")
         md += self._list(data, "Issues")
         md += self._list(data, "Imperfections")
+        md += self._list(data, "Impediments")
 
         path.resolve().write_text(md, encoding="utf-8")
         return md

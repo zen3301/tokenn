@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codeparser"
-version = "0.1.0"
+version = "0.1.2"
 description = "Multi-language code parsing and comment utilities using tree-sitter."
 readme = "README.md"
 authors = [{ name = "Dr. Zen" }]

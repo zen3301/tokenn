@@ -1,11 +1,11 @@
-#\/ ---------- Reviewed by: codex @ 2025-10-23 19:20:34
+#\/ ---------- Reviewed by: codex @ 2025-10-24 15:30:41
 #\/ $lang: English
 #\/ ---------- [Overview]
-#\/ Implements the main code review coordinator that stitches together reviewers, gathers Git context, and orchestrates file- and project-level reviews with optional parallel execution.
+#\/ Coordinates file, modified-path, and project review flows by orchestrating reviewer bots, Git context, and fix loops; pathlib parent resolution now keeps markdown reference discovery consistent on Windows.
 #\/ ---------- [Review]
-#\/ The fallback to a single worker when `os.cpu_count()` cannot provide a value resolves the previously reported crash, and the surrounding flow remains coherent and testable without any new concerns.
+#\/ Implementation appears solid: the pathlib-based parent lookup preserves directory context regardless of separator usage, so reference collection now works on Windows without regressing existing behavior.
 #\/ ---------- [Notes]
-#\/ Parallel execution now safely defaults to a single thread when CPU count cannot be detected, avoiding the earlier ThreadPoolExecutor crash.
+#\/ Clarified comments around trailing-slash handling and escaped separator cleanup for reference globbing.
 #\/ ----------
 
 import os
@@ -32,7 +32,7 @@ class TheCodereview(Codereview):
         self.extensions = tuple(Parser.ext2parser().keys())
 
     def _collect_references(self, project: str) -> list[str]:
-        # Normalize project path and ensure trailing slash
+        # Ensure the directory string ends with a slash so glob stays scoped
         if project != '' and not project.endswith('/'):
             project += '/'
 
@@ -92,38 +92,39 @@ class TheCodereview(Codereview):
             ctx['context'] = self.context
         return json.dumps(ctx, indent=2, ensure_ascii=False)
 
-    def review_code(self, src_path: str, fix: int = 0) -> str | None:
-        # Review/fix a single source file, fix=0 to review only, >0 as the maximum iterations of fix and review loops
+    def review_code(self, src_path: str, fix: int = 0, git_diff: bool = False) -> str | None:
+        # Review/fix a single source file (optionally include the git diff in context), fix=0 to review only, >0 as the maximum iterations of fix and review loops
         # Lowercase before suffix comparison so uppercase extensions (e.g., ".PY") stay reviewable.
         if not src_path.lower().endswith(self.extensions):  # Check for supported extensions
             return None
 
-        fn = src_path.replace('\\\\', '/').split('/')[-1]  # Extract filename
-        project = src_path[0:-len(fn)]  # Extract parent directory path
+        project = str(Path(src_path).parent)  # Pathlib normalizes separators so Windows lookups stay correct.
         references = self._collect_references(project)
 
         if fix > 0:
             reviewer = self.fixer
             retry = fix
         else:
-            reviewer = self.reviewer
+            reviewer = self.file
             retry = 1
-        return reviewer.review(self.reviewer, src_path, references, self.context, self.lang, self.timeout, retry, self.tmp)
 
-    def review_list(self, files: list[str], parallel: bool = False, fix: int = 0) -> dict[str, str]:
+        context = self._diff(src_path) if git_diff else self.context
+        return reviewer.review(self.reviewer, src_path, references, context, self.lang, self.timeout, retry, self.tmp)
+
+    def review_list(self, files: list[str], parallel: bool = False, fix: int = 0, git_diff: bool = False) -> dict[str, str]:
         # Review a list of files and return a mapping: file -> review content
         reviews = {}
         if parallel:
             workers = os.cpu_count() or 1  # Fallback to single worker when CPU count is unavailable.
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = [executor.submit(self.review_code, file, fix) for file in files]
+                futures = [executor.submit(self.review_code, file, fix, git_diff) for file in files]
                 results = [future.result() for future in futures]
             for file, review in zip(files, results):
                 if review is not None:
                     reviews[file] = review
         else:
             for file in files:
-                review = self.review_code(file, fix)
+                review = self.review_code(file, fix, git_diff)
                 if review is not None:
                     reviews[file] = review
         return reviews
@@ -139,7 +140,7 @@ class TheCodereview(Codereview):
     def review_modified(self, path: str, synthesize: bool = False, parallel: bool = False, fix: int = 0) -> int:
         # Review files with pending git changes and optionally synthesize directory reviews
         files = self._git_modified(path)
-        n = len(self.review_list(files, parallel, fix))  # Run file-level reviews on modified sources
+        n = len(self.review_list(files, parallel, fix, True))  # Run file-level reviews on modified sources
         if synthesize:
             paths = self._paths(files)  # Collect affected directories in descending length order
             for path in paths:  # Regenerate .REVIEW.md for each directory
@@ -157,7 +158,7 @@ class TheCodereview(Codereview):
             dir_path = md_path.parent
 
         dir_path.mkdir(parents=True, exist_ok=True)
-        project = str(dir_path).replace('\\\\', '/')  # Normalize Windows path separators
+        project = str(dir_path).replace('\\\\', '/')  # Flatten heavily escaped separators before collecting references
         references = self._collect_references(project)
 
         # Include only top-level files whose extensions map to known parsers

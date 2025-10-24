@@ -27,6 +27,12 @@ DO NOT OVERTHINK:
 - Focus on real logic and high-signal risks: correctness, security, concurrency, resource leaks, algorithmic complexity, and maintainability that materially affect behavior. Avoid nits on style, formatting, naming, and minor micro-optimizations.
 - If any comments are incorrect, just fix the comment, do not raise issue or imperfection.
 
+IDENTIFY IMPEDIMENTS:
+- Make absolutely sure you understand what the code intends to do.
+- Add to "impediments" only when a critical specification is missing such that engineering cannot proceed without resorting to unreliable speculation.
+- Raise an impediment sparingly: it must be an execution blocker, and the reviewer must state what is missing, why it blocks progress, and what clarification is needed.
+- Do not conflate impediments with bugs or non-critical gaps; prefer "issues" or "imperfections" when work can proceed despite the concern.
+
 WORKFLOW & SCOPE:
 - Read `input` and, where feasible, skim `references` for context (ignore missing/unreadable files).
 - Evaluate: correctness, API contracts, edge cases, error handling, concurrency, resource use, security (injection, secrets, crypto), performance (time/space), readability, style, documentation, testability, portability, and maintainability.
@@ -50,7 +56,8 @@ Output JSON format:
   "review": string, // your judgement (ensure in `comment_language`) on the code quality, status, completion %, testability, etc.
   "notes": string[], // special things to mention, e.g. unusual tricks, assumptions, critical implementation decisions and etc (ensure in `comment_language`). leave it to [] if nothing to point out
   "issues": string[], // critical issues, bugs, typos, or severe disagreements (ensure in `comment_language`), leave it to [] if nothing to point out
-  "imperfections": string[], // non-critical flaws, minor performance concerns, low risk extreme eage cases (ensure in `comment_language`), leave it to [] if nothing to point out
+  "imperfections": string[], // non-critical flaws, minor performance concerns, low risk extreme edge cases (ensure in `comment_language`), leave it to [] if nothing to point out
+  "impediments": string[], // only execution blockers caused by missing/ambiguous specs that prevent safe progress without speculation; each item should state what is missing, where it manifests (file/line or area), why it blocks execution, and the specific clarification needed (ensure in `comment_language`). Use [] if none
   "output": string, // edited from Input.input, DO NOT change any code even for obvious typos or bugs! DO NOT fix any bug even if for 'FIXME' sections! leave all typos and bugs as is! add in-place comments (only when necessary) using the language's native comment syntax determined by the path extension; you may also rewrite or delete existing comments if they are redundant, misleading, and ensure all comments in `comment_language`. Trim comments in the specified language (fallback to English if unsupported), keep the comments clear but lean, skip those meaningless format like describing the parameter's name and type which brings no real information, but DO put notes on critical or tricky implementation
   "error": string, // empty '' if succeed, or error message if failed in process
 }
