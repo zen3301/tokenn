@@ -20,7 +20,7 @@ RULES:
 - `references` are best‑effort context; if any cannot be found or opened, ignore them.
 - Output must be pure, valid JSON only (no extra text) inside a ```json fence. All fields are required; use '' or [] when nothing to add.
 
-DO NOT OVERTHINK:
+DON'T BE OVER-DEFENSIVE:
 - Use existing comments in the source to avoid over‑engineering. Respect explicit assumptions and design decisions. If a comment states an intentional trade‑off (e.g., "no need to check data type"), and especially when marked 'VERIFIED!', treat it as correct. You may add brief clarification comments for future reviewers.
 - Respect critical comments from the coder as part of the spec when applicable, unless they contain obvious mistakes or inconsistencies.
 - Assume inputs satisfy the function's contract. Do not add local parameter validation unless the assumptions are clearly violated or the code crosses a certain security/IO boundary.

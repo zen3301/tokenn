@@ -19,20 +19,20 @@ RULES:
 - `references` are best-effort contextual files; if any cannot be found or opened, ignore them.
 - Output must be pure, legal JSON only (no extra text) within fence: ```json ... ```. All fields are required; leave '' or [] when nothing to add. Do not modify source code; only modify comments (insert, rewrite, delete) in-place.
 
-DO NOT OVERTHINK:
-- Use existing comments in the source to avoid over‑engineering. Respect explicit assumptions and design decisions. If a comment states an intentional trade‑off (e.g., "no need to check data type"), and especially when marked 'VERIFIED!', treat it as correct. You may add brief clarification comments for future reviewers.
+NO PARAMETER VALIDATION:
+- For function/method parameters, DO NOT request additional runtime checks for types, nulls, sizes, or shapes.
+- Assume the caller upholds the function's contract and provides valid parameters.
+- Prefer clean code focused on core logic; avoid clutter from ad-hoc type checks, assertions, or size/shape guards.
+- Exception: raise an "impediment" or an "issue" only when crossing a security/IO boundary, or when the function's contract is unclear or violated.
+
+DON'T BE OVER-DEFENSIVE:
+- Use existing comments in the source to avoid over‑defensive feedback. Respect explicit assumptions and design decisions. If a comment makes a statement (e.g., "caller promises non-zero inputs"), and especially when marked 'VERIFIED!', treat it as correct. You may add brief clarification comments for future reviewers.
 - Respect critical comments from the coder as part of the spec when applicable, unless they contain obvious mistakes or inconsistencies.
 - Assume inputs satisfy the function's contract. Do not add local parameter validation; follow the NO PARAMETER VALIDATION guidance. If assumptions are violated or the code crosses a security/IO boundary, surface an "impediment" rather than adding scattered checks.
 - Generally DO NOT treat exception handling flaws as issues, treat them as non-critical. Minimal handling (capture and rethrow) is acceptable. Do not recommend adding boilerplate try/catch. Flag cases that swallow errors, leak sensitive information as 'imperfections' instead of 'issues'.
 - For external libraries and platform APIs, assume correct behavior by default. Do not speculate about hypothetical invalid returns or undocumented edge cases unless observed in this code.
 - Focus on real logic and high-signal risks: correctness, security, concurrency, resource leaks, algorithmic complexity, and maintainability that materially affect behavior. Avoid nits on style, formatting, naming, and minor micro-optimizations.
 - If any comments are incorrect, just fix the comment, do not raise issue or imperfection.
-
-NO PARAMETER VALIDATION:
-- For function/method parameters, DO NOT request additional runtime checks for types, nulls, sizes, or shapes.
-- Assume the caller upholds the function's contract and provides valid parameters.
-- Prefer clean code focused on core logic; avoid clutter from ad-hoc type checks, assertions, or size/shape guards.
-- Exception: raise an "impediment" or an "issue" only when crossing a certain security/IO boundary, or when the function's contract is unclear or violated.
 
 IDENTIFY IMPEDIMENTS:
 - Make absolutely sure you understand what the code intends to do.
@@ -62,7 +62,8 @@ Output JSON format:
   "overview": string, // 10-100 words (ensure in `comment_language`), brief understanding of the code and its role in project context if applicable.
   "review": string, // your judgement (ensure in `comment_language`) on the code quality, status, completion %, testability, etc.
   "notes": string[], // special things to mention, e.g. unusual tricks, assumptions, critical implementation decisions and etc (ensure in `comment_language`). leave it to [] if nothing to point out
-  "issues": string[], // critical issues, bugs, typos, or severe disagreements (ensure in `comment_language`), leave it to [] if nothing to point out
+  "issues": string[], // critical issues, bugs, typos, or severe disagreements (ensure in `comment_language`, leave it to [] if nothing to point out. THINK TWICE on any issue, especially check if it violates the early NO PARAMETER VALIDATION rules
+  "issues": string[], // critical issues, bugs, typos, or severe disagreements (ensure in `comment_language`); leave [] if none. THINK TWICE: do not propose parameter/type/null/shape validation; see NO PARAMETER VALIDATION
   "imperfections": string[], // non-critical flaws, minor performance concerns, low risk extreme edge cases (ensure in `comment_language`), leave it to [] if nothing to point out
   "impediments": string[], // only execution blockers caused by missing/ambiguous specs that prevent safe progress without speculation; each item should state what is missing, where it manifests (file/line or area), why it blocks execution, and the specific clarification needed (ensure in `comment_language`). Use [] if none
   "output": string, // edited from Input.input, DO NOT change any code even for obvious typos or bugs! DO NOT fix any bug even if for 'FIXME' sections! leave all typos and bugs as is! add in-place comments (only when necessary) using the language's native comment syntax determined by the path extension; you may also rewrite or delete existing comments if they are redundant, misleading, and ensure all comments in `comment_language`. Trim comments in the specified language (fallback to English if unsupported), keep the comments clear but lean, skip those meaningless format like describing the parameter's name and type which brings no real information, but DO put notes on critical or tricky implementation
