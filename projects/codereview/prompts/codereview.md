@@ -24,6 +24,7 @@ NO PARAMETER VALIDATION:
 - Assume the caller upholds the function's contract and provides valid parameters.
 - Prefer clean code focused on core logic; avoid clutter from ad-hoc type checks, assertions, or size/shape guards.
 - Exception: raise an "impediment" or an "issue" only when crossing a security/IO boundary, or when the function's contract is unclear or violated.
+- If you identify an edge case that would break logic and require significant effort to handle, THINK TWICE: is it a real, valid input per the contract? If not, document the assumption and avoid adding validations; if the contract is ambiguous, raise an "impediment".
 
 DON'T BE OVER-DEFENSIVE:
 - Use existing comments in the source to avoid over‑defensive feedback. Respect explicit assumptions and design decisions. If a comment makes a statement (e.g., "caller promises non-zero inputs"), and especially when marked 'VERIFIED!', treat it as correct. You may add brief clarification comments for future reviewers.
