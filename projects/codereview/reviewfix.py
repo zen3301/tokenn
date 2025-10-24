@@ -17,6 +17,7 @@ from .reviewfile import TheReviewFile
 class TheReviewFix(TheReviewFile):
     def _to_fix(self, review: str, src_path: str) -> bool:
         if '---------- [Issues]' not in review:  # Nothing to fix
+            print(f"--- All issues resolved in {src_path}:\n")
             return False
         if '---------- [Impediments]' in review:  # Impediments found, cannot fix
             print(f"--- Impediments found in {src_path}:\n{review}\n")
@@ -83,7 +84,11 @@ class TheReviewFix(TheReviewFile):
         if not prior_review:
             return None
 
-        if retry <= 1 or not self._to_fix(prior_review, src_path):  # Stop here
+        if not self._to_fix(prior_review, src_path):
+            return prior_review
+
+        if retry <= 1:
+            print(f"--- Issues remained but maximum tries reached for {src_path}:\n")
             return prior_review
 
         # Retry with the expanded context from this pass.
