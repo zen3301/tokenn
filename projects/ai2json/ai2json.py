@@ -149,14 +149,56 @@ class TheAI2JSON(AI2JSON):
         payload = payload[:i+1]
 
         # Parse and validate as dictionary type
-        try:
-            data = json.loads(payload)
-            if not isinstance(data, dict):
-                return None, "[ERR] _extract_json: not a dictionary"
-            return data, None
-        except json.JSONDecodeError:
-            print(f"---------- Invalid JSON:\n{payload}\n----------\n")
+        data = self._fix_json(payload)
+        if data is None:
             return None, "[ERR] _extract_json: can't parse JSON"
+        if not isinstance(data, dict):
+            return None, "[ERR] _extract_json: not a dictionary"
+        return data, None
+    
+    def _fix_json(self, payload: str) -> Any | None:
+        # Fast path: if it's already valid JSON, return as-is
+        try:
+            return json.loads(payload)
+        except Exception:
+            pass
+
+        n = len(payload)
+        i = 0
+        inside_string = False
+        prev_was_backslash = False
+        result_chars: list[str] = []
+
+        while i < n:
+            ch = payload[i]
+            if ch == '"' and not prev_was_backslash:
+                if not inside_string:
+                    inside_string = True
+                    result_chars.append('"')
+                else:
+                    j = i + 1
+                    while j < n and payload[j].isspace():
+                        j += 1
+                    next_ch = payload[j] if j < n else ''
+                    if next_ch in (',', '}', ']', ':'):
+                        inside_string = False
+                        result_chars.append('"')
+                    else:
+                        result_chars.append('\\\"')
+                prev_was_backslash = False
+            else:
+                result_chars.append(ch)
+                if ch == '\\' and not prev_was_backslash:
+                    prev_was_backslash = True
+                else:
+                    prev_was_backslash = False
+            i += 1
+
+        fixed = ''.join(result_chars)
+        try:
+            return json.loads(fixed)
+        except Exception:
+            return None
 
     def _timeout(self) -> int:
         # Base preparation time budget: 5 minutes for CLI startup, network latency, cleanup
