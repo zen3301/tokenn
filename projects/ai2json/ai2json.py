@@ -155,6 +155,7 @@ class TheAI2JSON(AI2JSON):
                 return None, "[ERR] _extract_json: not a dictionary"
             return data, None
         except json.JSONDecodeError:
+            print(f"---------- Invalid JSON:\n{payload}\n----------\n")
             return None, "[ERR] _extract_json: can't parse JSON"
 
     def _timeout(self) -> int:

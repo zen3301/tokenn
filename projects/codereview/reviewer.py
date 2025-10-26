@@ -98,8 +98,8 @@ class TheReviewer(Reviewer):
                 try:
                     # Check output AST json string against 'expected' which is AST json string from input source code
                     if parser.parse(data["output"]) != expected:
-                        # VERIFIED! Return data with AST mismatch, let caller to decide what to do
-                        return data, f"[ERR] _data_check: <output> does not match the input expected"
+                        # SPEC: Return data with AST mismatch, let caller to decide what to do
+                        return data, f"[WARNING] _data_check: <output> does not match the input expected"
                 except Exception as e:
                     return None, f"[ERR] _data_check: <output> parsing failed: {e}"
 

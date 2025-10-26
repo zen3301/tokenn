@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai2json"
-version = "0.1.2"
+version = "0.1.3"
 description = "Unified CLI adapters to run external AIs and extract JSON responses (Codex/Claude)."
 readme = "README.md"
 authors = [{ name = "Dr. Zen" }]
