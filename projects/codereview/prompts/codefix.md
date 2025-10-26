@@ -50,6 +50,7 @@ EDGE CASE HANDLING:
 - Do not propose additional validations for avoidable cases; see NO PARAMETER VALIDATION. If the contract is ambiguous or missing, raise an impediment in 'review'.
 - If you are not sure whether the case is avoidable, state the uncertainty and raise an impediment in 'review' requesting contract clarification.
 - Operational posture (default): treat resources and environment as managed by deployment; do not propose fallbacks, retries, or per‑operation probes unless explicitly required (see MINDSET).
+- When fixing any exception or edge case issue, unless explictly required in spec, prefer to simply throw error instead of speculate any fallback logic.
 
 CALLER vs CALLEE:
 - Unless explicitly required, it's always caller's responsibility to ensure it calls the callee (API) at the right timing, with the legal parameters/data.
