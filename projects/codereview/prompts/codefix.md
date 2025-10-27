@@ -46,11 +46,11 @@ EDGE CASE HANDLING:
 - For any unhandled edge case that could break logic, first determine whether it is avoidable by the caller or unavoidable at runtime.
 - Unavoidable cases are conditions the caller cannot control at runtime (e.g., external/third‑party service outage, cloud/infra incident) and are in‑scope per requirements; fix those issues.
 - Avoidable cases are conditions the caller can prevent by honoring the contract or correct sequencing (e.g., invalid parameter combinations, out-of-range index, calling before required initialization, wrong units). Do not fix those; add/refine inline comments to clearly explain, and put your arguments in 'review'.
-- DO NOT consider environment extremes, e.g. disk full, sudden shutdown or etc. If the code performs a file write with permission, assume it will finish successfully.
+- DO NOT consider environment extremes, e.g. disk full, sudden shutdown or etc. If the code performs a file write with permission, assume it will finish successfully without any failure or unexpected crash.
 - Do not propose additional validations for avoidable cases; see NO PARAMETER VALIDATION. If the contract is ambiguous or missing, raise an impediment in 'review'.
 - If you are not sure whether the case is avoidable, state the uncertainty and raise an impediment in 'review' requesting contract clarification.
 - Operational posture (default): treat resources and environment as managed by deployment; do not propose fallbacks, retries, or per‑operation probes unless explicitly required (see MINDSET).
-- When fixing any exception or edge case issue, unless explictly required in spec, prefer to simply throw error instead of speculate any fallback logic.
+- When fixing any exception or unnature edge case issue, unless explictly required in spec, prefer to simply throw error instead of speculate any fallback logic.
 
 CALLER vs CALLEE:
 - Unless explicitly required, it's always caller's responsibility to ensure it calls the callee (API) at the right timing, with the legal parameters/data.
@@ -66,8 +66,8 @@ ISSUES:
 COMMENTS:
 - Add/refine inline comments on demand, especially for those API calling assumptions. Make sure the callers and future reviewers can fully understand.
 - DO NOT remove existing comments unless they are irrelevant. Fix and polish them instead if they are misleading, unclear, vague, outdated, or with typos.
-- Pay extra attention to those comments with capital "VERIFIED", "SPEC", "ASSUMPTION", "MUST", etc. They are either part of the requirements, or confirmed correct/optimal implementation. If you suspect the related code is problematic, you are more likely wrong or misled by incorrect/ambiguous comments.
-- Generally keep comments clear and concise, and make sure they are in `comment_language` (rewrite if not).
+- Keywords in comments: all capital "SPEC", "NOTE", "ASSUMPTION", "VERIFIED", "MUST" and etc. Pay extra attention to those comments. They are either part of the requirements, or confirmed correct/optimal implementation. If you suspect the related code is problematic, you are more likely wrong or misled by other incorrect/ambiguous comments/context.
+- Generally keep comments clear and concise, and make sure they are in `comment_language` (rewrite if not), with exception of keywords above, keep them untouched in all capital English.
 
 WORKFLOW & SCOPE:
 - Read `input` and, where feasible, skim `references` for context (ignore missing/unreadable files).
@@ -94,7 +94,8 @@ Output JSON format:
   "error": string, // '' on success; error message only for blocking conditions
 }
 
-VALIDATION & ERRORS:
+PRE-OUTPUT CHECKLIST (all must pass):
+- Re-visit all input "issues" and your fixes, check against ISSUES rules for another time, make absolutely sure you fixed the real ones and pushed back others with clear arguments.
 - All fields are required in both input and output. If nothing to add, use '' or [].
 - Do not error for missing/unreadable `references` or for missing imports/includes; proceed without them.
 - Set `error` only for blocking conditions (e.g., missing required input fields, empty `input`, unsupported/unknown path extension for comment syntax). When set, still populate `summary` and `output` as best as possible.

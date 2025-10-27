@@ -97,7 +97,8 @@ class TheReviewer(Reviewer):
             if expected is not None:
                 try:
                     # Check output AST json string against 'expected' which is AST json string from input source code
-                    if parser.parse(data["output"]) != expected:
+                    ast_output = parser.parse(data["output"])
+                    if ast_output != expected:
                         # SPEC: Return data with AST mismatch, let caller to decide what to do
                         return data, f"[WARNING] _data_check: <output> does not match the input expected"
                 except Exception as e:

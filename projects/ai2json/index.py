@@ -1,18 +1,18 @@
-#\/ ---------- Reviewed by: claude @ 2025-10-24 15:13:04
+#\/ ---------- Reviewed by: claude @ 2025-10-27 16:10:02
 #\/ $lang: English
 #\/ ---------- [Overview]
-#\/ AI2JSON is an abstract base class defining a unified interface for AI CLI integrations. It specifies methods for identifying the AI provider, initializing CLI parameters (with timeout calculation logic), executing subprocesses, and provides a factory method to instantiate concrete implementations (Codex, Claude).
+#\/ AI2JSON is an abstract base class defining a unified interface for AI providers that generate JSON output via CLI subprocess invocation. It specifies three abstract methods (ai, init, exec) and provides a static factory method for instantiating concrete implementations (Codex, Claude). This serves as the top-level API contract for the ai2json system.
 #\/ ---------- [Review]
-#\/ The abstract interface is well-designed and follows proper ABC patterns. The contract is clear with detailed docstrings explaining timeout semantics and return value structures. The factory pattern with delayed imports avoids circular dependencies. Interface separation is clean: abstract methods define the contract, static factory provides instantiation. Estimated completion: 100%. The code is straightforward and testable through concrete implementations.
+#\/ The code is well-designed as a clean interface specification with proper abstraction boundaries. The docstrings are clear and comprehensive, explaining parameter semantics (especially timeout modes), return types, and design rationale (e.g., stdin routing for command-line length limits). The factory method pattern with delayed imports avoids circular dependencies. Code quality is high. Completion: 100%. Testability: excellent due to clear contracts. No functional defects identified.
 #\/ ---------- [Notes]
-#\/ Timeout parameter behavior (0, <0, >0) is documented but somewhat unconventional: negative values being treated as 'per-KB budget' is non-standard API design that may confuse callers.
-#\/ Factory method uses delayed imports explicitly to avoid circular dependencies between index.py and ai2json.py.
-#\/ The init() method specifies dynamic timeout calculation based on content length, indicating the class handles variable-duration AI operations.
-#\/ Return signatures consistently use tuple[T, str | None] pattern for value-or-error results (no exceptions thrown for normal failures).
+#\/ ASSUMPTION: Callers must provide valid AI provider identifiers ('codex', 'claude') to the factory method; invalid values will raise ValueError from TheAI2JSON.create.
+#\/ ASSUMPTION: Concrete implementations must honor the timeout semantics documented in init: timeout=0 triggers dynamic calculation, timeout<0 uses absolute value as per-KB budget, timeout>0 uses the value directly.
+#\/ ASSUMPTION: The exec method contract expects a dict as the primary return value; callers should validate the type after receiving a non-None result.
+#\/ The factory method uses delayed imports (from .ai2json import TheAI2JSON) to avoid circular dependencies between index.py and ai2json.py; this is a deliberate design choice.
 #\/ ---------- [Imperfections]
-#\/ The timeout parameter semantics (especially negative values as per-KB budget) could be simplified. Consider separate parameters like timeout and per_kb_budget for clarity.
-#\/ Type hint for exec() return value uses Any for the parsed JSON object when dict[str, Any] would be more precise given the docstring states 'expected to be dict'.
-#\/ The static factory method create() accepts tmp parameter but the abstract class doesn't define how tmp should be used, creating an implicit contract that concrete implementations must handle it.
+#\/ The ai() abstract method lacks documentation on whether it should return a constant or a computed value; consider clarifying that it's expected to be a constant identifier.
+#\/ The create factory method comment mentions 'etc.' for supported AI providers but the actual implementation (in TheAI2JSON) only supports 'codex' and 'claude'; consider either removing 'etc.' or making the list exhaustive.
+#\/ The exec method's first return value is typed as 'Any' but the comment specifies '(expected to be dict)'; consider using 'dict[str, Any] | None' for stronger type safety, or at minimum document why the weaker type is necessary.
 #\/ ----------
 
 from typing import Any
@@ -22,7 +22,7 @@ from abc import ABC, abstractmethod
 class AI2JSON(ABC):
     @abstractmethod
     def ai(self) -> str:
-        # Return AI provider identifier name, e.g., 'codex', 'claude'
+        # Return AI provider identifier name (constant), e.g., 'codex', 'claude'
         pass
 
     @abstractmethod
@@ -43,7 +43,7 @@ class AI2JSON(ABC):
     @staticmethod
     def create(ai: str, tmp: str | None = None) -> "AI2JSON":
         # Factory method: create concrete AI implementation via delayed imports to avoid circular dependencies
-        # ai: AI provider identifier ('codex', 'claude', etc.)
+        # ai: AI provider identifier; supported values: 'codex', 'claude'
         # tmp: optional temporary directory path for debug output
         from .ai2json import TheAI2JSON
         return TheAI2JSON.create(ai, tmp)

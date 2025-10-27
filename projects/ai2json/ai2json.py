@@ -1,20 +1,21 @@
-#\/ ---------- Reviewed by: claude @ 2025-10-24 15:16:51
+#\/ ---------- Reviewed by: claude @ 2025-10-27 16:09:31
 #\/ $lang: English
 #\/ ---------- [Overview]
-#\/ TheAI2JSON is an abstract base class implementation providing CLI-invoked AI execution infrastructure. It manages subprocess invocation with dynamic timeout calculation, JSON extraction from stdout with two-stage fallback parsing, and debug logging. Concrete subclasses (Codex2JSON, Claude2JSON) implement AI-specific CLI argument construction and output parsing. The class handles Windows command-line length limits by routing large prompts through stdin.
+#\/ TheAI2JSON is a base implementation of the AI2JSON interface that orchestrates CLI-based AI invocations via subprocess. It handles timeout calculation, stdin/stdout routing, JSON extraction with fence marker parsing, and debug output dumping. Concrete AI providers (Codex, Claude) inherit this class and implement provider-specific argument construction and stdout parsing.
 #\/ ---------- [Review]
-#\/ Code quality is solid with well-designed error handling and separation of concerns. The two bug fixes from prior review have been properly implemented: (1) _dump now catches OSError and returns False on write failures, preventing misleading success returns; (2) stderr capture increased from 500 to 2000 characters to preserve diagnostic information. Implementation is ~98% complete and production-ready. The timeout calculation, subprocess execution, and JSON extraction logic are robust. Testability is good with dependency injection via tmp parameter. The code handles edge cases appropriately for its CLI-oriented context.
+#\/ The code is functionally complete and demonstrates solid engineering: proper abstraction, robust JSON extraction with fallback mechanisms, and defensive error handling. The timeout calculation via bit-shift approximation is clever and acceptable. The _fix_json heuristic for repairing malformed JSON is a pragmatic workaround for AI output variability. Code quality is high with clear separation of concerns. Completion: ~95%. Testability is good due to modular methods. Minor imperfections in documentation and edge case handling exist but do not block functionality.
 #\/ ---------- [Notes]
-#\/ Bit-shift optimization (>>10 for /1024) in timeout calculation trades ~2.4% precision for performance; acceptable for non-critical timeout estimation and explicitly documented
-#\/ Factory method uses delayed imports to prevent circular dependencies between index.py and ai2json.py
-#\/ stdin_prompt routing specifically addresses Windows command-line length limits (8191 chars) which would break large prompts
-#\/ Two-stage JSON extraction strategy (_parse_stdout → _strip_fence fallback → _extract_json) provides resilience against varied AI output formats
-#\/ OSError catch in _dump intentionally silences all file I/O errors (disk full, permission denied, etc.) to prioritize robustness over debugging completeness
-#\/ The stderr capture limit of 2000 characters is a reasonable compromise between memory usage and diagnostic completeness
+#\/ ASSUMPTION: Callers must ensure system_prompt and user_prompt are non-empty when timeout=0 or timeout<0, otherwise timeout calculation may produce incorrect results (zero or near-zero timeout).
+#\/ ASSUMPTION: Subclasses (Codex2JSON, Claude2JSON) must implement _get_args to return valid CLI arguments and _parse_stdout to extract AI response; invalid implementations will cause exec to fail.
+#\/ ASSUMPTION: The tmp directory (if provided) must exist and be writable; _dump silently ignores failures to prioritize robustness.
+#\/ The _fix_json method uses a heuristic to repair common JSON escaping issues in AI-generated output; it may not handle all malformed JSON cases but is a best-effort approach.
+#\/ Bit-shift timeout approximation (>> 10 for KB) introduces ~2.4% error, which is acceptable for timeout estimation purposes.
 #\/ ---------- [Imperfections]
-#\/ Line 51: Multiple return points in exec method could be consolidated for improved readability, though current structure is maintainable
-#\/ Line 110: _strip_fence doesn't validate that suffix appears after prefix; could theoretically extract invalid content if markers appear in reverse order (extremely unlikely with well-formed AI output, acceptable given context)
-#\/ Line 13: Constructor prints to stdout rather than using logging module, making output control difficult in library usage scenarios (though reasonable for CLI-oriented tool)
+#\/ _strip_fence uses find/rfind which may fail if multiple fenced blocks exist; consider using the first complete block instead of first prefix + last suffix.
+#\/ _extract_json assumes single JSON object by finding first { and last }; nested or multiple objects in payload could cause incorrect extraction.
+#\/ The factory method create raises ValueError for unsupported AI types but does not provide a list of valid options in the error message (though it's in a comment).
+#\/ _fix_json debug output prints to stdout instead of using _dump; consider consistent debug output routing.
+#\/ No validation that timeout remains positive after calculation; extremely short prompts with custom per-KB budget could theoretically produce negative or zero timeout.
 #\/ ----------
 
 import json
@@ -33,6 +34,7 @@ class TheAI2JSON(AI2JSON):
             self.tmp = Path(tmp)
             print(f"TheAI2JSON: tmp = {self.tmp}")
 
+    # ASSUMPTION: Callers must provide non-empty prompts when timeout<=0 to ensure valid timeout calculation
     def init(self, system_prompt: str, user_prompt: str, timeout: int = 0) -> tuple[list[str], str | None, int]:
         # Returns CLI argument list, stdin prompt content, and final timeout value
         # timeout=0: dynamically calculate based on content length (default per-KB budget + default base overhead)
@@ -51,7 +53,6 @@ class TheAI2JSON(AI2JSON):
     def exec(self, args: list[str], timeout: int, stdin_prompt: str | None = None) -> tuple[Any, str | None]:
         # Execute subprocess, return parsed JSON object and error message (if failed)
         try:
-            import sys
             # VERIFIED! This works on Windows
             completed = subprocess.run(
                 args,
@@ -88,6 +89,7 @@ class TheAI2JSON(AI2JSON):
 
     def _dump(self, fn: str, text: str) -> bool:
         # Write debug output to tmp directory if configured; return False on any failure
+        # NOTE: Silently ignores I/O errors (disk full, permission denied) to prioritize robustness
         if not self.tmp:
             return False
         fn = f"{self.ai()}.{fn}"
@@ -117,6 +119,7 @@ class TheAI2JSON(AI2JSON):
 
     def _strip_fence(self, payload: str) -> str | None:
         # Extract content between fence markers (e.g., ```json ... ```); does not parse JSON
+        # NOTE: Uses first prefix and last suffix; may produce incorrect results if multiple fenced blocks exist
         if not payload:
             return None
 
@@ -133,6 +136,7 @@ class TheAI2JSON(AI2JSON):
 
     def _extract_json(self, payload: str) -> tuple[Any, str | None]:
         # Extract single JSON object dictionary from potentially fenced text
+        # NOTE: Assumes single object by finding first { and last }; nested/multiple objects may cause incorrect extraction
         if not payload:
             return None, "[ERR] _extract_json: payload is empty"
 
@@ -157,6 +161,7 @@ class TheAI2JSON(AI2JSON):
         return data, None
     
     def _fix_json(self, payload: str) -> Any | None:
+        # Best-effort heuristic to repair common JSON escaping issues in AI-generated output; not a perfect solution
         # Fast path: if it's already valid JSON, return as-is
         try:
             return json.loads(payload)
@@ -171,22 +176,22 @@ class TheAI2JSON(AI2JSON):
 
         while i < n:
             ch = payload[i]
-            if ch == '"' and not prev_was_backslash:
-                if not inside_string:
+            if ch == '"' and not prev_was_backslash: # an unescaped '"'
+                if not inside_string: # about to start a string
                     inside_string = True
                     result_chars.append('"')
                 else:
                     j = i + 1
-                    while j < n and payload[j].isspace():
+                    while j < n and payload[j].isspace(): # skip whitespace after the '"'
                         j += 1
                     next_ch = payload[j] if j < n else ''
-                    if next_ch in (',', '}', ']', ':'):
-                        inside_string = False
+                    if next_ch in (':', ',', ']', '}'): # JSON structural characters: ':' or ',' or ']' or '}'
+                        inside_string = False # consider as possible correct ending of a string
                         result_chars.append('"')
                     else:
-                        result_chars.append('\\\"')
+                        result_chars.append('\\\"') # consider as missing escape '\'
                 prev_was_backslash = False
-            else:
+            else: # regular character or escaped '\"'
                 result_chars.append(ch)
                 if ch == '\\' and not prev_was_backslash:
                     prev_was_backslash = True
@@ -198,6 +203,7 @@ class TheAI2JSON(AI2JSON):
         try:
             return json.loads(fixed)
         except Exception:
+            print(f"---------- Invalid JSON:\n{payload}\n---------- Fixed to:\n{fixed}\n----------")
             return None
 
     def _timeout(self) -> int:
