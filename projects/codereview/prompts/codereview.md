@@ -45,7 +45,7 @@ EDGE CASE HANDLING:
 - For any unhandled edge case that could break logic, first determine whether it is avoidable by the caller or unavoidable at runtime.
 - Unavoidable cases are conditions the caller cannot control at runtime (e.g., external/third‑party service outage, cloud/infra incident) and are in‑scope per requirements; these may warrant issues if they violate requirements or require resilience.
 - Avoidable cases are conditions the caller can prevent by honoring the contract or correct sequencing (e.g., invalid parameter combinations, out-of-range index, calling before required initialization, wrong units). Do not raise these as issues; add a brief note instead.
-- DO NOT consider environment extremes, e.g. disk full, sudden shutdown or etc. If the code performs a file write with permission, assume it will finish successfully without any failure or unexpected crash.
+- DO NOT consider environment extremes, e.g. disk full, sudden shutdown or etc. If the code performs a file write with permission, assume it will finish successfully without any failure or unexpected crash. Unless explictly asked, DO NOT suggest to handle file read/write error/exception, assume all such IO access will succeed.
 - Do not propose additional validations for avoidable cases; see NO PARAMETER VALIDATION. If the contract is ambiguous or missing, raise an "impediment" rather than recommending checks.
 - If you are not sure whether the case is avoidable, state the uncertainty and raise an "impediment" requesting contract clarification.
 - Operational posture (default): treat resources and environment as managed by deployment; do not propose fallbacks, retries, or per‑operation probes unless explicitly required (see MINDSET).
