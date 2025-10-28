@@ -166,37 +166,61 @@ class TheAI2JSON(AI2JSON):
         try:
             return json.loads(payload)
         except Exception:
-            pass
+            print(f"--- Try to fix JSON...")
 
         n = len(payload)
         i = 0
         inside_string = False
-        prev_was_backslash = False
+        string_is_key_candidate = False  # true if the string likely represents an object key
         result_chars: list[str] = []
 
         while i < n:
             ch = payload[i]
-            if ch == '"' and not prev_was_backslash: # an unescaped '"'
-                if not inside_string: # about to start a string
-                    inside_string = True
+            if ch == '"':
+                # Determine if this quote is escaped by counting preceding backslashes
+                backslash_count = 0
+                k = i - 1
+                while k >= 0 and payload[k] == '\\':
+                    backslash_count += 1
+                    k -= 1
+                is_escaped = (backslash_count % 2 == 1)
+
+                if not inside_string:
+                    # Start of a JSON string
                     result_chars.append('"')
+                    inside_string = True
+                    # Determine if this string is likely a key by checking the previous non-space token
+                    p = i - 1
+                    while p >= 0 and payload[p].isspace():
+                        p -= 1
+                    prev_ch = payload[p] if p >= 0 else ''
+                    string_is_key_candidate = prev_ch in ('{', ',')
                 else:
-                    j = i + 1
-                    while j < n and payload[j].isspace(): # skip whitespace after the '"'
-                        j += 1
-                    next_ch = payload[j] if j < n else ''
-                    if next_ch in (':', ',', ']', '}'): # JSON structural characters: ':' or ',' or ']' or '}'
-                        inside_string = False # consider as possible correct ending of a string
+                    if is_escaped:
+                        # Keep escaped quotes inside string as-is
                         result_chars.append('"')
                     else:
-                        result_chars.append('\\\"') # consider as missing escape '\'
-                prev_was_backslash = False
-            else: # regular character or escaped '\"'
-                result_chars.append(ch)
-                if ch == '\\' and not prev_was_backslash:
-                    prev_was_backslash = True
-                else:
-                    prev_was_backslash = False
+                        # Unescaped quote inside a string: decide if it should end the string
+                        j = i + 1
+                        while j < n and payload[j].isspace():
+                            j += 1
+                        next_ch = payload[j] if j < n else ''
+                        # Close if this looks like a normal string terminator. The ':' case
+                        # should only be considered a terminator for object keys.
+                        if next_ch in (',', ']', '}', '') or (next_ch == ':' and string_is_key_candidate):
+                            # Likely a proper string terminator
+                            result_chars.append('"')
+                            inside_string = False
+                            string_is_key_candidate = False
+                        else:
+                            # Likely a missing escape for an inner quote -> escape it
+                            result_chars.append('\\\"')
+                            # remain inside string
+                i += 1
+                continue
+
+            # Regular character path
+            result_chars.append(ch)
             i += 1
 
         fixed = ''.join(result_chars)
