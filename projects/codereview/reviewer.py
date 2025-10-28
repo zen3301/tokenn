@@ -68,6 +68,11 @@ class TheReviewer(Reviewer):
         if not all(k in data for k in required):
             return None, f"[ERR] _data_check: required keys not found"
 
+        if not data.get("design"):
+            data["design"] = ""
+        elif not isinstance(data.get("design"), str):
+            return None, f"[ERR] _data_check: <design> must be a string"
+
         # Normalize optional list fields for downstream consumers.
         if not data.get("notes"):
             data["notes"] = []

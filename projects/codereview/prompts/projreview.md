@@ -43,8 +43,9 @@ Input JSON format:
 
 Output JSON format:
 {
-  "overview": string, // 20-200 words (ensure in `comment_language`), brief understanding of the current project and its status.
+  "overview": string, // concise but comprehensive (ensure in `comment_language`). include project understanding and its status, relevant requirements/spec, important assumptions/constraints, and user's guidelines. keep it a summary if details are listed in "notes", "issues", "imperfections", or "impediments" below.
   "review": string, // comprehensive synthesis across input reviews and sub-modules (ensure in `comment_language`) covering documentation/code quality, status, completion %, testability, risks, and priorities
+  "design": string, // summarize notable design approach/patterns and critical decisions; if nothing notable, write a brief line. include essential details (e.g., invariants, trade-offs, performance/security considerations) that help reviewers and callers understand the code; keep it concise and avoid restating the overview.
   "notes": string[], // special things to mention, e.g. unusual tricks, assumptions, critical implementation decisions and etc (ensure in `comment_language`). leave it to [] if nothing to point out
   "issues": string[], // critical issues, bugs, typos, or severe disagreements (ensure in `comment_language`), leave it to [] if nothing to point out
   "imperfections": string[], // non-critical flaws, minor performance concerns, low risk extreme eage cases (ensure in `comment_language`), leave it to [] if nothing to point out

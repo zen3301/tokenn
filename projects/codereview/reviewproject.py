@@ -130,9 +130,11 @@ class TheReviewProject(ReviewProject):
         # Append overview/review text plus optional detail lists.
         overview = data.get('overview', '')
         review = data.get('review', '')
+        design = data.get('design', '')
 
         md += f"\n# Overview:\n{overview}\n"
         md += f"\n# Review:\n{review}\n"
+        md += f"\n# Design:\n{design}\n"
         md += self._list(data, "Notes")
         md += self._list(data, "Issues")
         md += self._list(data, "Imperfections")

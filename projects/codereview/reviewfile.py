@@ -67,6 +67,7 @@ class TheReviewFile(ReviewFile):
         txt += '$lang: ' + lang + '\n'
         txt += self._coment_text(data, 'Overview')
         txt += self._coment_text(data, 'Review')
+        txt += self._coment_text(data, 'Design')
         txt += self._coment_list(data, 'Notes')
         txt += self._coment_list(data, 'Issues')
         txt += self._coment_list(data, 'Imperfections')
