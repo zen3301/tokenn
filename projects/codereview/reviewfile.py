@@ -75,9 +75,10 @@ class TheReviewFile(ReviewFile):
         txt += '----------\n'
 
         # Trim source code, avoid duplication of review/requirement comments
-        source = data['output'].strip('\n')
+        source = data['output']
         _, source = parser.extract_comments(source, '\\/')
         _, source = parser.extract_comments(source, '\\%')
+        source = source.strip('\n')
 
         if requirements != '': # If requirement comments exist, write them back at the top of the source.
             source = parser.insert_comment(source = source, line = 0, comment = requirements + '\n', tag = '\\%', block = False)
