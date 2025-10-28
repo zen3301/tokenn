@@ -92,9 +92,9 @@ Input JSON format:
 
 Output JSON format:
 {
-  "overview": string, // comprehensive yet concise (ensure in `comment_language`); summarize the requirements and spec in best effort; include its role and purpose in the big picture, important assumptions/constraints, and user's guidelines; avoid restating the details in following fields.
+  "overview": string, // comprehensive requirements and spec in best effort (ensure in `comment_language`); include its role and purpose in the big picture, important assumptions/constraints, and user's guidelines; avoid restating the details in following fields.
   "review": string, // your judgement (ensure in `comment_language`) on the code quality, status, completion %, testability, etc.
-  "design": string, // summarize notable design approach, patterns, hierarchy, and critical decisions; if nothing notable, write a brief line; include essential details (e.g., invariants, trade-offs, performance/security considerations) that help reviewers and callers understand the code or mimic/follow the style.
+  "design": string, // summarize notable code structure/hierarchy, programming patterns/style, and critical design decisions; if nothing notable, write a brief line; include essential details (e.g., invariants, trade-offs, performance/security considerations) that help reviewers and callers understand the code or mimic/follow the style.
   "notes": string[], // special things to mention for reviewers and callers to pay extra attention, e.g. assumptions for callers to follow, unusual tricks, assumptions, critical implementation decisions and etc (ensure in `comment_language`). leave it to [] if nothing to point out
   "issues": string[], // strictly folllow the ISSUES rules above, only raise critical risks, bugs, typos, or severe disagreements (ensure in `comment_language`); leave [] if none. THINK TWICE, check against all rules listed above before your final decision!
   "imperfections": string[], // non-critical flaws, minor performance concerns, low risk extreme edge cases (ensure in `comment_language`), leave it to [] if nothing to point out

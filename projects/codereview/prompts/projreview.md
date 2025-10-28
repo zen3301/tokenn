@@ -43,9 +43,9 @@ Input JSON format:
 
 Output JSON format:
 {
-  "overview": string, // comprehensive synthesis across input overviews and sub-modules (ensure in `comment_language`); summarize the project level requirements and spec in best effort; include project understanding and its status, important assumptions/constraints, and user's guidelines; avoid restating the details in following fields.
+  "overview": string, // comprehensive synthesis across input overviews and sub-modules for the project level requirements and spec in best effort (ensure in `comment_language`); include project understanding and its status, important assumptions/constraints, and user's guidelines; avoid restating the details in following fields.
   "review": string, // comprehensive synthesis across input reviews and sub-modules (ensure in `comment_language`) covering documentation/code quality, status, completion %, testability, risks, and priorities
-  "design": string, // summarize notable project level design approach/patterns and critical decisions; include essential details (e.g., invariants, trade-offs, performance/security considerations) that help reviewers and callers understand the code.
+  "design": string, // summarize notable project level code structure/hierarchy, programming patterns/style, and critical design decisions; include essential details (e.g., invariants, trade-offs, performance/security considerations) that help reviewers and callers understand the code.
   "notes": string[], // special things to mention for reviewers and callers to pay extra attention, e.g. unusual tricks, assumptions, critical implementation decisions and etc (ensure in `comment_language`). leave it to [] if nothing to point out
   "issues": string[], // critical issues, bugs, typos, or severe disagreements (ensure in `comment_language`), leave it to [] if nothing to point out
   "imperfections": string[], // non-critical flaws, minor performance concerns, low risk extreme eage cases (ensure in `comment_language`), leave it to [] if nothing to point out
