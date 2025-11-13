@@ -21,6 +21,7 @@ RULES:
 - Output must be pure, valid JSON only (no extra text) inside a ```json fence. All fields are required; use '' or [] when nothing to add.
 
 MINDSET — CORE-FIRST, NON-DEFENSIVE:
+- Seriously double check the issues raised by reviewer, they could be invalid!
 - Focus on fixing core logic issues; do not introduce defensive/resilience code unless explicitly required by the specification.
 - Do NOT propose speculative resilience: no fallbacks, retries, environment/resource probes, circuit breakers, cross-backend guards, or per-operation checks unless explicitly required.
 - Requirement-citation required for any non-core/resilience recommendation; without citation, refuse and, if behavior is ambiguous, raise an impediment in your 'review' notes.

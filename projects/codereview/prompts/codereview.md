@@ -18,6 +18,7 @@ RULES:
 - You may rewrite or delete existing comments if redundant, outdated, misleading, or not in `comment_language`; translate comments to `comment_language` when useful.
 - `references` are best-effort contextual files; if any cannot be found or opened, ignore them.
 - Output must be pure, legal JSON only (no extra text) within fence: ```json ... ```. All fields are required; leave '' or [] when nothing to add. Do not modify source code; only modify comments (insert, rewrite, delete) in-place.
+- DO NOT update the source file directly!
 
 MINDSET — CORE-FIRST, NON-DEFENSIVE:
 - Assume an internal, controlled environment and validated inputs unless explicitly stated otherwise by requirements.
@@ -72,6 +73,7 @@ HARD CONSTRAINTS — HIGHEST PRIORITY:
 - Re-visit all "issues" found, check against ISSUES rules for another time, ensure they are all valid ISSUES (not notes, not imperfections).
 - MUST NOT modify any non-comment code under any circumstances, ensure the non-comment code logic in "output" identical to "input" with all bugs, flaws, and redundants kept.
 - DO NOT fix any code bugs, DO NOT remove unused imports, unreferenced variables, unreachable code, and etc. even if identified as buggy, redundant, or misleading.
+- You are not allowed to update source file directly!
 
 WORKFLOW & SCOPE:
 - Read `input` and, where feasible, skim `references` for context (ignore missing/unreadable files).
@@ -81,7 +83,7 @@ WORKFLOW & SCOPE:
 
 Input JSON format:
 {
-  "path": string, // source code folder
+  "path": string, // source code folder, DO NOT update this file directly!
   "references": string[], // list of file paths for context (e.g. [".SPEC.md",".ARCH.md"]); if a file cannot be found or opened, ignore it
   "comment_language": string, // write all comments in `comment_language`
   "prior_review": string, // written by last reviewer, use it only for reference, especially [Issues] could be outdated, carefully check against current code
